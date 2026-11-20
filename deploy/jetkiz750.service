@@ -1,0 +1,23 @@
+[Unit]
+Description=Жеткіз 750 — сервер доставки
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jetkiz
+Group=jetkiz
+WorkingDirectory=/opt/jetkiz750/server
+EnvironmentFile=/etc/jetkiz750.env
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning index.js
+Restart=always
+RestartSec=3
+# Защита: процесс видит только свои каталоги
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/jetkiz750
+
+[Install]
+WantedBy=multi-user.target

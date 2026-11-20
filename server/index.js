@@ -214,6 +214,9 @@ function newSession(userId) {
 
 const api = express.Router();
 
+// Проверка работоспособности для мониторинга (база отвечает)
+api.get('/health', (req, res) => { db.prepare('SELECT 1').get(); res.json({ ok: true }); });
+
 api.get('/config', (req, res) => res.json({
   city: cfg.CITY, price_seller: cfg.PRICE_SELLER, price_buyer: cfg.PRICE_BUYER,
   price_total: cfg.PRICE_SELLER + cfg.PRICE_BUYER, max_weight_kg: cfg.MAX_WEIGHT_KG,
@@ -610,6 +613,9 @@ if (require.main === module) {
   if (process.env.NODE_ENV === 'production' && cfg.OTP_SECRET === 'dev-otp-secret') console.warn('ВНИМАНИЕ: задайте OTP_SECRET — случайную строку для защиты SMS-кодов');
   if (process.env.NODE_ENV === 'production' && payments.MODE === 'mock') console.warn('ВНИМАНИЕ: платежи в тестовом режиме (PAYMENT_MODE=mock) — любой может отметить заказ оплаченным');
   if (sms.MODE === 'mock') console.log('SMS в тестовом режиме: сообщения пишутся в консоль и в журнал (Админ → SMS)');
-  app.listen(cfg.PORT, () => console.log(`Жеткіз 750 запущен: http://localhost:${cfg.PORT}`));
+  const server = app.listen(cfg.PORT, process.env.HOST || undefined, () => console.log(`Жеткіз 750 запущен: http://localhost:${cfg.PORT}`));
+  // Корректная остановка (systemd посылает SIGTERM): дождаться текущих запросов и закрыть базу
+  const stop = () => { server.close(() => { db.close(); process.exit(0); }); setTimeout(() => process.exit(0), 10000).unref(); };
+  process.on('SIGTERM', stop); process.on('SIGINT', stop);
 }
 module.exports = app;

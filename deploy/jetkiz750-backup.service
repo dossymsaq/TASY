@@ -1,0 +1,6 @@
+[Unit]
+Description=Жеткіз 750 — резервная копия базы
+
+[Service]
+Type=oneshot
+ExecStart=/opt/jetkiz750/deploy/backup.sh
