@@ -108,3 +108,4 @@ dialog .card { border: 0; box-shadow: none; }
 section { padding: 28px 0; }
 footer { padding: 32px 0; color: var(--muted); font-size: 14px; }
 .big-code { font-size: 44px; font-weight: 800; letter-spacing: 8px; text-align: center; font-family: ui-monospace, Menlo, monospace; }
+[hidden] { display: none !important; }

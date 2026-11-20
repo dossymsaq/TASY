@@ -4,8 +4,10 @@ const crypto = require('node:crypto');
 const cfg = require('./config');
 const { db, hashPassword, checkPassword, tx } = require('./db');
 const payments = require('./payments');
+const sms = require('./sms');
 
 const app = express();
+if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY); // за nginx: TRUST_PROXY=1
 app.use(express.json({ limit: '100kb' }));
 app.use((req, res, next) => { // CORS для мобильного приложения
   res.set('Access-Control-Allow-Origin', '*');
@@ -36,6 +38,15 @@ const randCode = (len) => {
   const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   return Array.from(crypto.randomBytes(len), (b) => abc[b % abc.length]).join('');
 };
+// Простой счётчик попыток в памяти: не больше max событий за windowMs на ключ
+const hits = new Map();
+function limit(key, max, windowMs, msg = 'Слишком много попыток, попробуйте позже', { record = true } = {}) {
+  const now = Date.now();
+  const arr = (hits.get(key) || []).filter((t) => now - t < windowMs);
+  if (arr.length >= max) fail(429, msg);
+  if (record) { arr.push(now); hits.set(key, arr); }
+}
+setInterval(() => { const now = Date.now(); for (const [k, a] of hits) if (!a.some((t) => now - t < 3600e3)) hits.delete(k); }, 600e3).unref();
 const publicUser = (u) => u && ({ id: u.id, role: u.role, name: u.name, phone: u.phone, shop_name: u.shop_name, pickup_address: u.pickup_address, active: !!u.active, created_at: u.created_at });
 
 function logEvent(orderId, status, note, actorId) {
@@ -48,6 +59,29 @@ function setStatus(order, status, note, actorId, extra = {}) {
   if (status === 'delivered') sets.push("delivered_at = datetime('now')");
   db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...vals, order.id);
   logEvent(order.id, status, note, actorId);
+  statusSms(order.id, status);
+}
+
+// SMS покупателю и продавцу о смене статуса. Отправляется после ответа API;
+// если транзакция откатилась (статус в базе другой) — ничего не уходит.
+function statusSms(orderId, status) {
+  setImmediate(() => {
+    const o = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+    if (!o || o.status !== status) return;
+    const seller = db.prepare('SELECT phone, shop_name, name FROM users WHERE id = ?').get(o.seller_id);
+    const courier = o.courier_id ? db.prepare('SELECT name FROM users WHERE id = ?').get(o.courier_id) : null;
+    const link = `${cfg.PUBLIC_URL}/t/${o.code}`;
+    const shop = seller.shop_name || seller.name;
+    const pay = o.buyer_paid ? '' : ` Оплата доставки ${cfg.PRICE_BUYER} тг онлайн или курьеру.`;
+    const msg = {
+      ready: [[o.buyer_phone, `${shop}: заказ «${o.item_desc}» доставит Жеткіз 750.${pay} Статус: ${link}`]],
+      assigned: [[seller.phone, `Курьер ${courier?.name || ''} едет за заказом ${o.code} (${o.buyer_name}).`]],
+      picked_up: [[o.buyer_phone, `Курьер ${courier?.name || ''} везёт ваш заказ. Код получения: ${o.confirm_code} — назовите его курьеру. ${link}`]],
+      delivered: [[seller.phone, `Заказ ${o.code} вручён покупателю ${o.buyer_name}.`]],
+      cancelled: [[o.buyer_phone, `Доставка заказа ${o.code} от ${shop} отменена.`], [seller.phone, `Заказ ${o.code} отменён.`]],
+    }[status] || [];
+    for (const [phone, text] of msg) sms.notify(phone, text);
+  });
 }
 function getOrder(id) {
   const o = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
@@ -116,28 +150,81 @@ const api = express.Router();
 api.get('/config', (req, res) => res.json({
   city: cfg.CITY, price_seller: cfg.PRICE_SELLER, price_buyer: cfg.PRICE_BUYER,
   price_total: cfg.PRICE_SELLER + cfg.PRICE_BUYER, max_weight_kg: cfg.MAX_WEIGHT_KG,
-  districts: cfg.DISTRICTS, statuses: cfg.STATUSES, payment_mode: payments.MODE,
+  districts: cfg.DISTRICTS, statuses: cfg.STATUSES, payment_mode: payments.MODE, sms_mode: sms.MODE,
 }));
 
-api.post('/auth/register', (req, res) => {
-  const b = req.body || {};
+// Создаёт продавца или покупателя. password === null — аккаунт только для входа по SMS.
+function createAccount(b, phone, password) {
   const role = b.role === 'seller' ? 'seller' : 'client';
-  const phone = normPhone(b.phone);
   const name = str(b.name, 'Имя', 100);
-  if (String(b.password || '').length < 6) fail(400, 'Пароль — минимум 6 символов');
+  if (password !== null && String(password || '').length < 6) fail(400, 'Пароль — минимум 6 символов');
   const shop = role === 'seller' ? str(b.shop_name, 'Название магазина', 100) : null;
   const pickup = role === 'seller' ? str(b.pickup_address, 'Адрес забора товара') : null;
   if (db.prepare('SELECT 1 FROM users WHERE phone = ?').get(phone)) fail(409, 'Этот телефон уже зарегистрирован');
+  const pw = password === null ? crypto.randomBytes(24).toString('hex') : String(password);
   const r = db.prepare('INSERT INTO users (role,name,phone,shop_name,pickup_address,password_hash) VALUES (?,?,?,?,?,?)')
-    .run(role, name, phone, shop, pickup, hashPassword(String(b.password)));
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid);
+    .run(role, name, phone, shop, pickup, hashPassword(pw));
+  return db.prepare('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid);
+}
+
+api.post('/auth/register', (req, res) => {
+  const b = req.body || {};
+  const user = createAccount(b, normPhone(b.phone), b.password);
   res.status(201).json({ token: newSession(user.id), user: publicUser(user) });
+});
+
+// ---------- вход по SMS-коду ----------
+const otpHash = (phone, code) => crypto.createHash('sha256').update(`${phone}:${code}:${cfg.OTP_SECRET}`).digest('hex');
+
+api.post('/auth/otp/request', async (req, res) => {
+  const phone = normPhone(req.body?.phone);
+  limit('otp-ip:' + req.ip, 20, 3600e3);
+  const last = db.prepare("SELECT (julianday('now') - julianday(created_at)) * 86400 AS ago FROM otp_codes WHERE phone = ? ORDER BY id DESC LIMIT 1").get(phone);
+  if (last && last.ago < cfg.OTP_RESEND_SEC) fail(429, `Повторно отправить код можно через ${Math.ceil(cfg.OTP_RESEND_SEC - last.ago)} сек.`);
+  const { n } = db.prepare("SELECT COUNT(*) n FROM otp_codes WHERE phone = ? AND created_at > datetime('now','-1 hour')").get(phone);
+  if (n >= 5) fail(429, 'Слишком много запросов кода. Попробуйте через час.');
+  const user = db.prepare('SELECT active FROM users WHERE phone = ?').get(phone);
+  if (user && !user.active) fail(403, 'Аккаунт заблокирован');
+  const code = String(crypto.randomInt(0, 10 ** cfg.OTP_LENGTH)).padStart(cfg.OTP_LENGTH, '0');
+  db.prepare("UPDATE otp_codes SET used = 1 WHERE phone = ? AND used = 0").run(phone);
+  db.prepare(`INSERT INTO otp_codes (phone, code_hash, expires_at) VALUES (?,?,datetime('now','+${cfg.OTP_TTL_MIN} minutes'))`).run(phone, otpHash(phone, code));
+  await sms.send(phone, `Жеткіз 750: код входа ${code}. Никому его не сообщайте.`, { kind: 'otp', throwOnError: true })
+    .catch(() => fail(502, 'Не удалось отправить SMS. Попробуйте позже.'));
+  const r = { ok: true, registered: !!user, resend_sec: cfg.OTP_RESEND_SEC };
+  if (sms.MODE === 'mock' && process.env.NODE_ENV !== 'production') r.dev_code = code; // только для тестового режима
+  res.json(r);
+});
+
+// Проверка кода. Если номер новый — нужны данные профиля (name, role, для продавца shop_name и pickup_address);
+// без них ответ { need_profile: true }, код при этом не тратится.
+api.post('/auth/otp/verify', (req, res) => {
+  const b = req.body || {};
+  const phone = normPhone(b.phone);
+  const otp = db.prepare("SELECT * FROM otp_codes WHERE phone = ? AND used = 0 AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1").get(phone);
+  if (!otp) fail(400, 'Код устарел — запросите новый');
+  if (otp.attempts >= cfg.OTP_MAX_ATTEMPTS) fail(429, 'Слишком много неверных попыток — запросите новый код');
+  const ok = crypto.timingSafeEqual(Buffer.from(otpHash(phone, String(b.code || '').trim())), Buffer.from(otp.code_hash));
+  if (!ok) {
+    db.prepare('UPDATE otp_codes SET attempts = attempts + 1 WHERE id = ?').run(otp.id);
+    fail(400, 'Неверный код');
+  }
+  let user = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
+  const isNew = !user;
+  if (isNew) {
+    if (!b.name) return res.json({ need_profile: true });
+    user = createAccount(b, phone, null);
+  }
+  db.prepare('UPDATE otp_codes SET used = 1 WHERE id = ?').run(otp.id);
+  if (!user.active) fail(403, 'Аккаунт заблокирован');
+  res.status(isNew ? 201 : 200).json({ token: newSession(user.id), user: publicUser(user) });
 });
 
 api.post('/auth/login', (req, res) => {
   const phone = normPhone(req.body?.phone);
+  const lim = (record) => limit('login:' + phone, 10, 900e3, 'Слишком много попыток входа. Подождите 15 минут или войдите по SMS-коду.', { record });
+  lim(false);
   const user = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
-  if (!user || !checkPassword(String(req.body?.password || ''), user.password_hash)) fail(401, 'Неверный телефон или пароль');
+  if (!user || !checkPassword(String(req.body?.password || ''), user.password_hash)) { lim(true); fail(401, 'Неверный телефон или пароль'); }
   if (!user.active) fail(403, 'Аккаунт заблокирован');
   res.json({ token: newSession(user.id), user: publicUser(user) });
 });
@@ -254,6 +341,7 @@ api.post('/courier/orders/:id/take', auth('courier'), (req, res) => {
   const r = db.prepare("UPDATE orders SET courier_id = ?, status = 'assigned', updated_at = datetime('now') WHERE id = ? AND status = 'ready' AND courier_id IS NULL").run(req.user.id, req.params.id);
   if (!r.changes) fail(409, 'Заказ уже взят другим курьером');
   logEvent(Number(req.params.id), 'assigned', `Курьер: ${req.user.name}`, req.user.id);
+  statusSms(Number(req.params.id), 'assigned');
   res.json({ ok: true });
 });
 api.post('/courier/orders/:id/pickup', auth('courier'), (req, res) => {
@@ -315,6 +403,10 @@ api.get('/admin/users', auth('admin'), (req, res) => {
     ? db.prepare('SELECT * FROM users WHERE role = ? ORDER BY id DESC').all(req.query.role)
     : db.prepare('SELECT * FROM users ORDER BY id DESC').all();
   res.json({ users: rows.map(publicUser) });
+});
+api.get('/admin/notifications', auth('admin'), (req, res) => {
+  const rows = db.prepare('SELECT * FROM notifications ORDER BY id DESC LIMIT 200').all();
+  res.json({ notifications: rows, sms_mode: sms.MODE });
 });
 api.get('/admin/couriers', auth('admin'), (req, res) => {
   const rows = db.prepare(`SELECT u.id, u.name, u.phone, u.active,
@@ -420,6 +512,8 @@ app.use((err, req, res, next) => {
 });
 
 if (require.main === module) {
+  if (process.env.NODE_ENV === 'production' && cfg.OTP_SECRET === 'dev-otp-secret') console.warn('ВНИМАНИЕ: задайте OTP_SECRET — случайную строку для защиты SMS-кодов');
+  if (sms.MODE === 'mock') console.log('SMS в тестовом режиме: сообщения пишутся в консоль и в журнал (Админ → SMS)');
   app.listen(cfg.PORT, () => console.log(`Жеткіз 750 запущен: http://localhost:${cfg.PORT}`));
 }
 module.exports = app;

@@ -11,7 +11,7 @@ const TABS = {
   seller: [['new', 'Новый заказ'], ['orders', 'Мои заказы'], ['support', 'Поддержка'], ['profile', 'Профиль']],
   client: [['orders', 'Мои посылки'], ['support', 'Поддержка'], ['profile', 'Профиль']],
   courier: [['available', 'Доступные'], ['mine', 'Мои доставки'], ['done', 'История'], ['support', 'Поддержка'], ['profile', 'Профиль']],
-  admin: [['dash', 'Обзор'], ['orders', 'Заказы'], ['couriers', 'Курьеры'], ['users', 'Пользователи'], ['tickets', 'Обращения'], ['profile', 'Профиль']],
+  admin: [['dash', 'Обзор'], ['orders', 'Заказы'], ['couriers', 'Курьеры'], ['users', 'Пользователи'], ['tickets', 'Обращения'], ['sms', 'SMS'], ['profile', 'Профиль']],
   support: [['tickets', 'Обращения'], ['orders', 'Поиск заказа'], ['profile', 'Профиль']],
 };
 
@@ -61,36 +61,65 @@ document.addEventListener('submit', async (e) => {
 });
 
 // ---------- auth ----------
+// Вход и регистрация — по SMS-коду. Сотрудники могут войти по паролю.
 function authView(mode = location.hash === '#register-seller' ? 'seller' : 'login') {
   $tabs.innerHTML = '';
   document.getElementById('who').textContent = '';
   const tab = (m, t) => `<button class="${mode === m ? 'on' : ''}" data-act="authMode" data-m="${m}">${t}</button>`;
-  $view.innerHTML = `<div class="card" style="max-width:480px;margin:24px auto">
-    <nav class="tabs" style="padding-top:0">${tab('login', 'Вход')}${tab('seller', 'Я продавец')}${tab('client', 'Я покупатель')}</nav>
-    ${mode === 'login' ? `
+  const phoneField = '<div><label>Телефон</label><input name="phone" type="tel" placeholder="+7 7XX XXX XX XX" autocomplete="tel" required></div>';
+  const body = mode === 'password' ? `
       <form data-form="login" class="stack">
-        <div><label>Телефон</label><input name="phone" type="tel" placeholder="+7 7XX XXX XX XX" required></div>
-        <div><label>Пароль</label><input name="password" type="password" required></div>
+        ${phoneField}
+        <div><label>Пароль</label><input name="password" type="password" autocomplete="current-password" required></div>
         <div class="err"></div><button class="btn block">Войти</button>
+        <p class="small"><a href="#" data-act="authMode" data-m="login">← Войти по SMS-коду</a></p>
         <p class="small muted">Демо: продавец 77000000004 / seller123, покупатель 77000000005 / client123, курьер 77000000003 / courier123, админ 77000000001 / admin123, поддержка 77000000002 / support123</p>
       </form>` : `
-      <form data-form="register" class="stack">
-        <input type="hidden" name="role" value="${mode}">
-        ${mode === 'seller' ? '<p class="small muted" style="margin:0">Вы платите 750 ₸ за каждую доставку, ваш покупатель — тоже 750 ₸.</p>' : '<p class="small muted" style="margin:0">Посылки, отправленные на ваш номер, появятся в кабинете автоматически.</p>'}
-        <div><label>Ваше имя</label><input name="name" required></div>
-        <div><label>Телефон</label><input name="phone" type="tel" placeholder="+7 7XX XXX XX XX" required></div>
+      <form data-form="otp" class="stack">
+        <input type="hidden" name="role" value="${mode === 'seller' ? 'seller' : 'client'}">
+        ${mode === 'seller' ? '<p class="small muted" style="margin:0">Вы платите 750 ₸ за каждую доставку, ваш покупатель — тоже 750 ₸.</p>' : ''}
+        ${mode === 'client' ? '<p class="small muted" style="margin:0">Посылки, отправленные на ваш номер, появятся в кабинете автоматически.</p>' : ''}
+        <div data-profile ${mode === 'login' ? 'hidden' : ''}><label>Ваше имя</label><input name="name" ${mode === 'login' ? '' : 'required'}></div>
+        ${phoneField}
         ${mode === 'seller' ? `
           <div><label>Название магазина</label><input name="shop_name" required></div>
           <div><label>Адрес, откуда забирать товар</label><input name="pickup_address" placeholder="Улица, дом, офис" required></div>` : ''}
-        <div><label>Пароль</label><input name="password" type="password" minlength="6" required></div>
-        <div class="err"></div><button class="btn block">Зарегистрироваться</button>
-      </form>`}
+        <div data-code hidden><label>Код из SMS</label><input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{4,6}"></div>
+        <div class="err"></div>
+        <button class="btn block">Получить код по SMS</button>
+        <p class="small" data-resend hidden><a href="#" data-act="otpResend">Отправить код ещё раз</a></p>
+        ${mode === 'login' ? '<p class="small"><a href="#" data-act="authMode" data-m="password">Войти по паролю (для сотрудников)</a></p>' : ''}
+      </form>`;
+  $view.innerHTML = `<div class="card" style="max-width:480px;margin:24px auto">
+    <nav class="tabs" style="padding-top:0">${tab('login', 'Вход')}${tab('seller', 'Я продавец')}${tab('client', 'Я покупатель')}</nav>
+    ${body}
   </div>`;
 }
 actions.authMode = (d) => authView(d.m);
 const forms = {};
 forms.login = async (f) => { const r = await api('POST', '/auth/login', f); store.token = r.token; start(); };
-forms.register = async (f) => { const r = await api('POST', '/auth/register', f); store.token = r.token; history.replaceState(null, '', '/app'); start(); };
+
+async function otpSend(form) {
+  const r = await api('POST', '/auth/otp/request', { phone: form.phone.value });
+  const codeBox = form.querySelector('[data-code]');
+  codeBox.hidden = false; codeBox.querySelector('input').required = true;
+  form.querySelector('[data-resend]').hidden = false;
+  form.querySelector('button.btn').textContent = 'Войти';
+  form.phone.readOnly = true;
+  if (r.dev_code) { form.code.value = r.dev_code; toast(`Тестовый режим: код ${r.dev_code}`); } else form.code.focus();
+}
+forms.otp = async (f, form) => {
+  if (form.querySelector('[data-code]').hidden) return otpSend(form);
+  const r = await api('POST', '/auth/otp/verify', f);
+  if (r.need_profile) { // новый номер на вкладке «Вход» — спросим имя
+    const box = form.querySelector('[data-profile]');
+    box.hidden = false; box.querySelector('input').required = true; box.querySelector('input').focus();
+    form.querySelector('.err').textContent = 'Номер новый — укажите имя, чтобы создать кабинет покупателя.';
+    return;
+  }
+  store.token = r.token; history.replaceState(null, '', '/app'); start();
+};
+actions.otpResend = async (d, el) => { await otpSend(el.closest('form')); toast('Код отправлен'); };
 actions.logout = async () => { try { await api('POST', '/auth/logout'); } catch {} store.token = null; S.user = null; authView('login'); };
 
 // ---------- layout ----------
@@ -348,6 +377,14 @@ VIEWS.admin = {
       </table></div>`;
   },
   tickets: ticketsView,
+  sms: async () => {
+    const { notifications, sms_mode } = await api('GET', '/admin/notifications');
+    const st = { mock: '<span class="muted">тест</span>', sent: '<span class="paid">отправлено</span>', failed: '<span class="unpaid">ошибка</span>' };
+    return `${sms_mode === 'mock' ? '<div class="card small" style="margin-bottom:16px">Тестовый режим: SMS не отправляются, а только записываются сюда. Для реальной отправки задайте на сервере <code>SMS_MODE=mobizon</code> и <code>MOBIZON_API_KEY</code>.</div>' : ''}
+      <div class="card scroll"><table class="table"><tr><th>Время</th><th>Телефон</th><th>Текст</th><th>Статус</th></tr>
+      ${notifications.map((n) => `<tr><td>${date(n.created_at)}</td><td>${phone(n.phone)}</td><td>${esc(n.text)}</td><td>${st[n.status] || esc(n.status)}${n.error ? `<div class="small muted">${esc(n.error)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Пока пусто</td></tr>'}
+      </table></div>`;
+  },
 };
 forms.addUser = async (f) => { await api('POST', '/admin/users', f); toast('Сотрудник добавлен'); reload(); };
 actions.toggleUser = async (d) => { await api('PATCH', `/admin/users/${d.id}`, { active: d.on === '1' }); reload(); };
