@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ваша посылка — Жеткіз 750</title>
+  <meta name="theme-color" content="#00a3bf">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="logo" href="/">Жеткіз <b>750</b></a>
+</div></header>
+<main class="wrap" style="max-width:640px;padding-top:20px;padding-bottom:40px" id="root"><p class="muted">Загрузка…</p></main>
+<script src="/common.js"></script>
+<script>
+const { api, esc, money, phone, badge, toast, timeline } = J;
+const code = decodeURIComponent(location.pathname.split('/').pop() || '');
+const root = document.getElementById('root');
+
+async function load() {
+  try {
+    const { order: o, price_buyer } = await api('GET', '/track/' + encodeURIComponent(code));
+    const shop = o.seller.shop_name || o.seller.name;
+    const active = !['delivered', 'cancelled'].includes(o.status);
+    root.innerHTML = `
+      <div class="stack">
+        <div class="card stack">
+          <div class="row between"><h2 style="margin:0">Посылка от «${esc(shop)}»</h2>${badge(o)}</div>
+          <div class="muted small">Заказ <span class="code">${esc(o.code)}</span> · ${esc(o.item_desc)} · ${o.weight_kg} кг</div>
+          <div><b>Куда:</b> ${esc(o.address)}, р-н ${esc(o.district)}, Астана</div>
+          <div><b>Получатель:</b> ${esc(o.buyer_name)}</div>
+          ${o.courier ? `<div><b>Курьер:</b> ${esc(o.courier.name)} · <a href="tel:+${esc(o.courier.phone)}">${phone(o.courier.phone)}</a></div>` : ''}
+        </div>
+
+        ${o.status === 'cancelled' ? '' : o.buyer_paid ? `
+          <div class="card"><span class="paid">✓ Доставка оплачена</span> — ${money(price_buyer)}</div>` : `
+          <div class="card stack">
+            <h3 style="margin:0">Оплатите доставку: ${money(price_buyer)}</h3>
+            <p class="muted small" style="margin:0">Продавец уже оплатил свою часть. Вы можете оплатить сейчас онлайн или наличными курьеру при получении.</p>
+            <button class="btn sun block" id="pay">Оплатить ${money(price_buyer)}</button>
+          </div>`}
+
+        ${active ? `
+          <div class="card stack">
+            <h3 style="margin:0">Код получения</h3>
+            <div class="big-code">${esc(o.confirm_code)}</div>
+            <p class="muted small" style="margin:0;text-align:center">Назовите этот код курьеру только когда получите посылку.</p>
+          </div>` : ''}
+
+        <div class="card"><h3>История</h3>${timeline(o.events)}</div>
+
+        <details class="card"><summary>Проблема с заказом? Написать в поддержку</summary>
+          <form id="ticket" class="stack" style="margin-top:12px">
+            <input name="contact_name" placeholder="Ваше имя" value="${esc(o.buyer_name)}" required>
+            <input name="contact_phone" placeholder="Телефон" required>
+            <textarea name="message" placeholder="Опишите проблему" required></textarea>
+            <div class="err"></div>
+            <button class="btn">Отправить</button>
+          </form>
+        </details>
+      </div>`;
+    document.getElementById('pay')?.addEventListener('click', async (e) => {
+      e.target.disabled = true;
+      try { await api('POST', `/track/${encodeURIComponent(o.code)}/pay`); toast('Оплата прошла успешно'); load(); }
+      catch (err) { toast(err.message); e.target.disabled = false; }
+    });
+    document.getElementById('ticket').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = Object.fromEntries(new FormData(e.target));
+      try {
+        await api('POST', '/tickets', { ...f, subject: `Заказ ${o.code}`, order_code: o.code });
+        e.target.innerHTML = '<p class="paid">Обращение отправлено. Мы перезвоним вам.</p>';
+      } catch (err) { e.target.querySelector('.err').textContent = err.message; }
+    });
+  } catch (err) {
+    root.innerHTML = `<div class="card"><h2>Заказ не найден</h2><p class="muted">${esc(err.message)}</p><a class="btn" href="/">На главную</a></div>`;
+  }
+}
+load();
+setInterval(() => { if (!document.hidden && !document.activeElement?.closest('form')) load(); }, 30000);
+</script>
+</body>
+</html>

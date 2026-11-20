@@ -1,0 +1,44 @@
+import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
+
+// Адрес сервера. Задайте EXPO_PUBLIC_API_URL, например: EXPO_PUBLIC_API_URL=https://api.jetkiz750.kz
+export const API_URL = (process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/$/, '');
+
+let token = null;
+const KEY = 'jt_token';
+
+export async function loadToken() {
+  try { token = Platform.OS === 'web' ? globalThis.localStorage?.getItem(KEY) : await SecureStore.getItemAsync(KEY); }
+  catch { token = null; }
+  return token;
+}
+export async function saveToken(t) {
+  token = t;
+  try {
+    if (Platform.OS === 'web') t ? globalThis.localStorage?.setItem(KEY, t) : globalThis.localStorage?.removeItem(KEY);
+    else t ? await SecureStore.setItemAsync(KEY, t) : await SecureStore.deleteItemAsync(KEY);
+  } catch {}
+}
+
+export async function api(method, path, body) {
+  let res;
+  try {
+    res = await fetch(API_URL + '/api' + path, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch { throw new Error('Нет связи с сервером'); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(data.error || 'Ошибка'); e.status = res.status; throw e; }
+  return data;
+}
+
+export const money = (n) => Number(n || 0).toLocaleString('ru-RU') + ' ₸';
+export const phone = (p) => (p ? `+${p[0]} ${p.slice(1, 4)} ${p.slice(4, 7)} ${p.slice(7, 9)} ${p.slice(9)}` : '');
+export const date = (s) => {
+  if (!s) return '';
+  const d = new Date(s.replace(' ', 'T') + 'Z');
+  const z = (n) => String(n).padStart(2, '0');
+  return `${z(d.getDate())}.${z(d.getMonth() + 1)} ${z(d.getHours())}:${z(d.getMinutes())}`;
+};

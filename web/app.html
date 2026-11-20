@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Кабинет — Жеткіз 750</title>
+  <meta name="theme-color" content="#00a3bf">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="logo" href="/">Жеткіз <b>750</b></a>
+  <span class="spacer"></span>
+  <span id="who" class="small muted"></span>
+</div></header>
+<main class="wrap" style="padding-bottom:48px">
+  <nav class="tabs" id="tabs"></nav>
+  <div id="view"></div>
+</main>
+<dialog id="dlg"><div class="card" id="dlgBody"></div></dialog>
+<script src="/common.js"></script>
+<script src="/app.js"></script>
+<script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
+</body>
+</html>

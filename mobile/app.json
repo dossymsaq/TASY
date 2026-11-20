@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "Жеткіз 750",
+    "slug": "jetkiz750",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "kz.jetkiz750.app"
+    },
+    "android": {
+      "package": "kz.jetkiz750.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#00a3bf",
+        "foregroundImage": "./assets/android-icon-foreground.png"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store"
+    ],
+    "scheme": "jetkiz750",
+    "splash": {
+      "backgroundColor": "#00a3bf",
+      "image": "./assets/icon.png",
+      "resizeMode": "contain"
+    }
+  }
+}
