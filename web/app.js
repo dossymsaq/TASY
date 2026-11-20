@@ -11,7 +11,7 @@ const TABS = {
   seller: [['new', 'Новый заказ'], ['orders', 'Мои заказы'], ['support', 'Поддержка'], ['profile', 'Профиль']],
   client: [['orders', 'Мои посылки'], ['support', 'Поддержка'], ['profile', 'Профиль']],
   courier: [['available', 'Доступные'], ['mine', 'Мои доставки'], ['done', 'История'], ['support', 'Поддержка'], ['profile', 'Профиль']],
-  admin: [['dash', 'Обзор'], ['orders', 'Заказы'], ['couriers', 'Курьеры'], ['users', 'Пользователи'], ['tickets', 'Обращения'], ['sms', 'SMS'], ['profile', 'Профиль']],
+  admin: [['dash', 'Обзор'], ['orders', 'Заказы'], ['couriers', 'Курьеры'], ['users', 'Пользователи'], ['tickets', 'Обращения'], ['sms', 'Уведомления'], ['profile', 'Профиль']],
   support: [['tickets', 'Обращения'], ['orders', 'Поиск заказа'], ['profile', 'Профиль']],
 };
 
@@ -394,8 +394,8 @@ VIEWS.admin = {
     const { notifications, sms_mode } = await api('GET', '/admin/notifications');
     const st = { mock: '<span class="muted">тест</span>', sent: '<span class="paid">отправлено</span>', failed: '<span class="unpaid">ошибка</span>' };
     return `${sms_mode === 'mock' ? '<div class="card small" style="margin-bottom:16px">Тестовый режим: SMS не отправляются, а только записываются сюда. Для реальной отправки задайте на сервере <code>SMS_MODE=mobizon</code> и <code>MOBIZON_API_KEY</code>.</div>' : ''}
-      <div class="card scroll"><table class="table"><tr><th>Время</th><th>Телефон</th><th>Текст</th><th>Статус</th></tr>
-      ${notifications.map((n) => `<tr><td>${date(n.created_at)}</td><td>${phone(n.phone)}</td><td>${esc(n.text)}</td><td>${st[n.status] || esc(n.status)}${n.error ? `<div class="small muted">${esc(n.error)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Пока пусто</td></tr>'}
+      <div class="card scroll"><table class="table"><tr><th>Время</th><th>Кому</th><th>Канал</th><th>Текст</th><th>Статус</th></tr>
+      ${notifications.map((n) => `<tr><td>${date(n.created_at)}</td><td>${/^7\d{10}$/.test(n.phone) ? phone(n.phone) : esc(n.phone)}</td><td>${n.kind === 'push' ? 'push' : 'SMS'}</td><td>${esc(n.text)}</td><td>${st[n.status] || esc(n.status)}${n.error ? `<div class="small muted">${esc(n.error)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Пока пусто</td></tr>'}
       </table></div>`;
   },
 };

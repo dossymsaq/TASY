@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jetkiz-'));
 process.env.DB_FILE = path.join(tmp, 'test.sqlite');
+process.env.PUSH_MODE = 'log';
 const app = require('../index');
 
 let server, base;
@@ -201,4 +202,33 @@ test('Freedom Pay: подпись запроса и ответа', () => {
   const expected = require('node:crypto').createHash('md5').update('init_payment.php;10;123;salt;secret').digest('hex');
   assert.equal(sig, expected, 'параметры сортируются по имени, разделитель «;», в конце секрет');
   assert.equal(fpSign('x', { a: 1, pg_sig: 'zzz' }, 's'), fpSign('x', { a: 1 }, 's'), 'pg_sig не участвует в подписи');
+});
+
+test('push: курьеры узнают о новом заказе, продавец с приложением получает push вместо SMS', async () => {
+  const seller = await login('77000000004', 'seller123');
+  const courier = await login('77000000003', 'courier123');
+  const admin = await login('77000000001', 'admin123');
+  assert.equal((await call('POST', '/me/push-token', { token: 'not-a-token' }, seller)).status, 400);
+  assert.equal((await call('POST', '/me/push-token', { token: 'ExponentPushToken[seller-device-1]', platform: 'android' }, seller)).status, 200);
+  assert.equal((await call('POST', '/me/push-token', { token: 'ExponentPushToken[courier-device-1]', platform: 'ios' }, courier)).status, 200);
+
+  const r = (await call('POST', '/seller/orders', { buyer_name: 'Нурлан', buyer_phone: '77018880011', address: 'ул. Иманова, 3', district: 'Алматы', item_desc: 'Кроссовки', weight_kg: 1.5, pay_now: true }, seller)).data;
+  await payOnline(r);
+  await call('POST', `/courier/orders/${r.order.id}/take`, null, courier);
+  await new Promise((res) => setTimeout(res, 20));
+  const log = (await call('GET', '/admin/notifications', null, admin)).data.notifications;
+  assert.ok(log.some((n) => n.kind === 'push' && n.phone === 'курьеры' && n.text.includes('Новый заказ · Алматы')), 'push курьерам о новом заказе');
+  assert.ok(log.some((n) => n.kind === 'push' && n.phone === '77000000004' && n.text.includes(r.order.code)), 'push продавцу');
+  assert.ok(!log.some((n) => n.kind === 'status' && n.phone === '77000000004' && n.text.includes(r.order.code)), 'SMS продавцу не нужно — есть приложение');
+  assert.ok(log.some((n) => n.kind === 'status' && n.phone === '77018880011'), 'покупателю без приложения — SMS');
+
+  // после выхода с устройства push туда не идут
+  await call('POST', '/auth/logout', { push_token: 'ExponentPushToken[seller-device-1]' }, seller);
+  const s2 = await login('77000000004', 'seller123');
+  const r2 = (await call('POST', '/seller/orders', { buyer_name: 'Нурлан', buyer_phone: '77018880011', address: 'ул. Иманова, 3', district: 'Алматы', item_desc: 'Кепка', weight_kg: 0.2, pay_now: true }, s2)).data;
+  await payOnline(r2);
+  await call('POST', `/courier/orders/${r2.order.id}/take`, null, courier);
+  await new Promise((res) => setTimeout(res, 20));
+  const log2 = (await call('GET', '/admin/notifications', null, admin)).data.notifications;
+  assert.ok(log2.some((n) => n.kind === 'status' && n.phone === '77000000004' && n.text.includes(r2.order.code)), 'без приложения — снова SMS');
 });

@@ -105,11 +105,21 @@ CREATE TABLE IF NOT EXISTS otp_codes (
 );
 CREATE INDEX IF NOT EXISTS idx_otp_phone ON otp_codes(phone, id);
 
--- Журнал отправленных SMS
+-- Устройства с мобильным приложением (push-уведомления Expo)
+CREATE TABLE IF NOT EXISTS push_tokens (
+  token TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  platform TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_push_user ON push_tokens(user_id);
+
+-- Журнал отправленных SMS и push
 CREATE TABLE IF NOT EXISTS notifications (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   phone TEXT NOT NULL,
-  kind TEXT NOT NULL,            -- otp | status
+  kind TEXT NOT NULL,            -- otp | status | push
   text TEXT NOT NULL,
   status TEXT NOT NULL,          -- mock | sent | failed
   error TEXT,

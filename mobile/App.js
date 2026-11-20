@@ -12,6 +12,7 @@ import { ClientOrders } from './src/screens/Client';
 import { Available, Deliver, Done, Mine } from './src/screens/Courier';
 import { Assign, Couriers, Dashboard, Orders, Users } from './src/screens/Admin';
 import { TicketChat, Tickets } from './src/screens/Support';
+import { onNotificationOpen, pushToken, registerPush } from './src/push';
 
 // Вкладки для каждой роли: [ключ, иконка, подпись, экран]
 const TABS = {
@@ -44,6 +45,16 @@ function Main() {
   }, []);
   React.useEffect(() => { start(); }, [start]);
   React.useEffect(() => { if (user) setTab((t) => (TABS[user.role].some((x) => x[0] === t) ? t : TABS[user.role][0][0])); }, [user]);
+  // Push: регистрируем устройство после входа; нажатие на уведомление открывает нужную вкладку
+  React.useEffect(() => { if (user) registerPush(); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => {
+    if (!user) return undefined;
+    return onNotificationOpen((data) => {
+      const tabs = TABS[user.role];
+      setStack(data.ticket_id ? [{ name: 'ticket', params: { id: data.ticket_id, title: `Обращение #${data.ticket_id}` } }] : []);
+      if (data.tab && tabs.some((t) => t[0] === data.tab)) setTab(data.tab);
+    });
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (stack.length) { setStack((s) => s.slice(0, -1)); return true; }
@@ -56,7 +67,7 @@ function Main() {
     user, cfg, setUser,
     push: (name, params = {}) => setStack((s) => [...s, { name, params }]),
     pop: () => setStack((s) => s.slice(0, -1)),
-    logout: async () => { try { await api('POST', '/auth/logout'); } catch {} await saveToken(null); setUser(null); setStack([]); },
+    logout: async () => { try { await api('POST', '/auth/logout', { push_token: pushToken() }); } catch {} await saveToken(null); setUser(null); setStack([]); },
   }), [user, cfg]);
 
   if (boot) return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator size="large" color={th.brand} /></View>;

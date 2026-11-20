@@ -5,6 +5,7 @@ const cfg = require('./config');
 const { db, hashPassword, checkPassword, tx } = require('./db');
 const payments = require('./payments');
 const sms = require('./sms');
+const push = require('./push');
 
 const app = express();
 if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY); // за nginx: TRUST_PROXY=1
@@ -59,12 +60,21 @@ function setStatus(order, status, note, actorId, extra = {}) {
   if (status === 'delivered') sets.push("delivered_at = datetime('now')");
   db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...vals, order.id);
   logEvent(order.id, status, note, actorId);
-  statusSms(order.id, status);
+  statusSms(order.id, status, actorId);
 }
 
-// SMS покупателю и продавцу о смене статуса. Отправляется после ответа API;
+// Уведомить человека: push, если у него установлено приложение, иначе SMS.
+// smsAlways — SMS уходит в любом случае (код получения: push может быть отключён в настройках телефона).
+async function notifyPerson(phone, { title, body, smsText, data = {}, smsAlways = false }) {
+  const u = db.prepare('SELECT id FROM users WHERE phone = ? AND active = 1').get(phone);
+  const pushed = u ? await push.sendToUsers([u.id], { title, body, data }, phone) : 0;
+  if (smsText && (smsAlways || !pushed)) sms.notify(phone, smsText);
+}
+const activeIds = (role) => db.prepare('SELECT id FROM users WHERE role = ? AND active = 1').all(role).map((r) => r.id);
+
+// Уведомления о смене статуса заказа. Отправляются после ответа API;
 // если транзакция откатилась (статус в базе другой) — ничего не уходит.
-function statusSms(orderId, status) {
+function statusSms(orderId, status, actorId = null) {
   setImmediate(() => {
     const o = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
     if (!o || o.status !== status) return;
@@ -73,14 +83,27 @@ function statusSms(orderId, status) {
     const link = `${cfg.PUBLIC_URL}/t/${o.code}`;
     const shop = seller.shop_name || seller.name;
     const pay = o.buyer_paid ? '' : ` Оплата доставки ${cfg.PRICE_BUYER} тг онлайн или курьеру.`;
-    const msg = {
-      ready: [[o.buyer_phone, `${shop}: заказ «${o.item_desc}» доставит Жеткіз 750.${pay} Статус: ${link}`]],
-      assigned: [[seller.phone, `Курьер ${courier?.name || ''} едет за заказом ${o.code} (${o.buyer_name}).`]],
-      picked_up: [[o.buyer_phone, `Курьер ${courier?.name || ''} везёт ваш заказ. Код получения: ${o.confirm_code} — назовите его курьеру. ${link}`]],
-      delivered: [[seller.phone, `Заказ ${o.code} вручён покупателю ${o.buyer_name}.`]],
-      cancelled: [[o.buyer_phone, `Доставка заказа ${o.code} от ${shop} отменена.`], [seller.phone, `Заказ ${o.code} отменён.`]],
-    }[status] || [];
-    for (const [phone, text] of msg) sms.notify(phone, text);
+    const toBuyer = (x) => notifyPerson(o.buyer_phone, { ...x, data: { order_code: o.code, tab: 'orders' } });
+    const toSeller = (x) => notifyPerson(seller.phone, { ...x, data: { order_code: o.code, tab: 'orders' } });
+    const toCourier = (x) => o.courier_id && o.courier_id !== actorId && push.sendToUsers([o.courier_id], { ...x, data: { order_code: o.code, tab: 'mine' } }, 'курьер');
+    const jobs = {
+      ready: () => {
+        toBuyer({ title: `Посылка от ${shop}`, body: `«${o.item_desc}» скоро привезёт курьер.${pay}`, smsText: `${shop}: заказ «${o.item_desc}» доставит Жеткіз 750.${pay} Статус: ${link}` });
+        push.sendToUsers(activeIds('courier'), { title: `Новый заказ · ${o.district}`, body: `${o.pickup_address} → ${o.address}, ${o.weight_kg} кг`, data: { order_code: o.code, tab: 'available' } }, 'курьеры');
+      },
+      assigned: () => {
+        toSeller({ title: `Курьер едет за заказом ${o.code}`, body: `${courier?.name || 'Курьер'} заберёт посылку для ${o.buyer_name}.`, smsText: `Курьер ${courier?.name || ''} едет за заказом ${o.code} (${o.buyer_name}).` });
+        toCourier({ title: `Вам назначен заказ ${o.code}`, body: `${o.pickup_address} → ${o.address}` });
+      },
+      picked_up: () => toBuyer({ title: 'Курьер везёт вашу посылку', body: `${courier?.name || 'Курьер'} в пути. Код получения: ${o.confirm_code}`, smsText: `Курьер ${courier?.name || ''} везёт ваш заказ. Код получения: ${o.confirm_code} — назовите его курьеру. ${link}`, smsAlways: true }),
+      delivered: () => toSeller({ title: `Заказ ${o.code} доставлен`, body: `Посылка вручена: ${o.buyer_name}.`, smsText: `Заказ ${o.code} вручён покупателю ${o.buyer_name}.` }),
+      cancelled: () => {
+        toBuyer({ title: 'Доставка отменена', body: `Заказ ${o.code} от ${shop} отменён.`, smsText: `Доставка заказа ${o.code} от ${shop} отменена.` });
+        toSeller({ title: `Заказ ${o.code} отменён`, body: o.buyer_name, smsText: `Заказ ${o.code} отменён.` });
+        toCourier({ title: `Заказ ${o.code} отменён`, body: 'Не забирайте и не везите эту посылку.' });
+      },
+    };
+    Promise.resolve(jobs[status]?.()).catch((e) => console.error('Ошибка уведомления:', e.message));
   });
 }
 function getOrder(id) {
@@ -301,6 +324,13 @@ api.post('/auth/login', (req, res) => {
 
 api.post('/auth/logout', auth(), (req, res) => {
   db.prepare('DELETE FROM sessions WHERE token = ?').run(req.token);
+  if (req.body?.push_token) push.removeToken(req.body.push_token); // на этом устройстве больше не присылать
+  res.json({ ok: true });
+});
+
+// Регистрация устройства для push-уведомлений (вызывает мобильное приложение после входа)
+api.post('/me/push-token', auth(), (req, res) => {
+  if (!push.saveToken(req.user.id, req.body?.token, req.body?.platform)) fail(400, 'Неверный push-токен');
   res.json({ ok: true });
 });
 
@@ -418,7 +448,7 @@ api.post('/courier/orders/:id/take', auth('courier'), (req, res) => {
   const r = db.prepare("UPDATE orders SET courier_id = ?, status = 'assigned', updated_at = datetime('now') WHERE id = ? AND status = 'ready' AND courier_id IS NULL").run(req.user.id, req.params.id);
   if (!r.changes) fail(409, 'Заказ уже взят другим курьером');
   logEvent(Number(req.params.id), 'assigned', `Курьер: ${req.user.name}`, req.user.id);
-  statusSms(Number(req.params.id), 'assigned');
+  statusSms(Number(req.params.id), 'assigned', req.user.id);
   res.json({ ok: true });
 });
 api.post('/courier/orders/:id/pickup', auth('courier'), (req, res) => {
@@ -534,6 +564,8 @@ api.post('/tickets', optionalAuth, (req, res) => {
     db.prepare('INSERT INTO ticket_messages (ticket_id,author_id,author_role,author_name,body) VALUES (?,?,?,?,?)').run(r.lastInsertRowid, u?.id ?? null, u?.role || 'guest', contactName, body);
     return r.lastInsertRowid;
   });
+  const staffIds = [...activeIds('support'), ...activeIds('admin')];
+  push.sendToUsers(staffIds, { title: `Новое обращение: ${subject}`, body: `${contactName}: ${body.slice(0, 120)}`, data: { ticket_id: Number(id), tab: 'tickets' } }, 'поддержка').catch(() => {});
   res.status(201).json({ ticket: { id } });
 });
 const ticketList = (where, ...args) => db.prepare(`SELECT t.*, o.code order_code,
@@ -566,6 +598,9 @@ api.post('/tickets/:id/messages', auth(), (req, res) => {
     db.prepare('INSERT INTO ticket_messages (ticket_id,author_id,author_role,author_name,body) VALUES (?,?,?,?,?)').run(t.id, req.user.id, req.user.role, req.user.name, body);
     db.prepare("UPDATE tickets SET status = ?, updated_at = datetime('now') WHERE id = ?").run(status, t.id);
   });
+  if (staff(req.user) && t.user_id) {
+    push.sendToUsers([t.user_id], { title: 'Ответ поддержки', body: body.slice(0, 150), data: { ticket_id: t.id, tab: 'support' } }, 'ответ поддержки').catch(() => {});
+  }
   res.json({ ok: true });
 });
 api.post('/tickets/:id/close', auth(), (req, res) => {
@@ -612,7 +647,7 @@ app.use((err, req, res, next) => {
 if (require.main === module) {
   if (process.env.NODE_ENV === 'production' && cfg.OTP_SECRET === 'dev-otp-secret') console.warn('ВНИМАНИЕ: задайте OTP_SECRET — случайную строку для защиты SMS-кодов');
   if (process.env.NODE_ENV === 'production' && payments.MODE === 'mock') console.warn('ВНИМАНИЕ: платежи в тестовом режиме (PAYMENT_MODE=mock) — любой может отметить заказ оплаченным');
-  if (sms.MODE === 'mock') console.log('SMS в тестовом режиме: сообщения пишутся в консоль и в журнал (Админ → SMS)');
+  if (sms.MODE === 'mock') console.log('SMS в тестовом режиме: сообщения пишутся в консоль и в журнал (Админ → Уведомления)');
   const server = app.listen(cfg.PORT, process.env.HOST || undefined, () => console.log(`Жеткіз 750 запущен: http://localhost:${cfg.PORT}`));
   // Корректная остановка (systemd посылает SIGTERM): дождаться текущих запросов и закрыть базу
   const stop = () => { server.close(() => { db.close(); process.exit(0); }); setTimeout(() => process.exit(0), 10000).unref(); };
