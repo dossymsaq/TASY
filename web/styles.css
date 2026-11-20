@@ -109,3 +109,10 @@ section { padding: 28px 0; }
 footer { padding: 32px 0; color: var(--muted); font-size: 14px; }
 .big-code { font-size: 44px; font-weight: 800; letter-spacing: 8px; text-align: center; font-family: ui-monospace, Menlo, monospace; }
 [hidden] { display: none !important; }
+/* Юридические страницы */
+.doc { max-width: 760px; padding-top: 24px; padding-bottom: 40px; }
+.doc h1 { font-size: 28px; }
+.doc h2 { font-size: 20px; margin-top: 1.6em; }
+.doc p, .doc li { line-height: 1.6; }
+.doc ul { padding-left: 1.2em; }
+footer a { color: inherit; }

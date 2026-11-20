@@ -1,4 +1,5 @@
 import React from 'react';
+import { Linking } from 'react-native';
 import { API_URL, api, phone } from '../api';
 import { Scroll } from '../common';
 import { useNav } from '../nav';
@@ -30,6 +31,8 @@ export default function Profile() {
         <Button title="Сохранить" onPress={save} />
         <Button kind="ghost" title="Выйти" onPress={logout} />
       </Card>
+      <Button kind="ghost" small title="Публичная оферта" onPress={() => Linking.openURL(`${API_URL}/offer`)} />
+      <Button kind="ghost" small title="Политика конфиденциальности" onPress={() => Linking.openURL(`${API_URL}/privacy`)} />
       <T muted size={12} style={{ textAlign: 'center' }}>Сервер: {API_URL}</T>
     </Scroll>
   );

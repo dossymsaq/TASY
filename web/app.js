@@ -87,6 +87,7 @@ function authView(mode = location.hash === '#register-seller' ? 'seller' : 'logi
         <div data-code hidden><label>Код из SMS</label><input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{4,6}"></div>
         <div class="err"></div>
         <button class="btn block">Получить код по SMS</button>
+        <p class="small muted" style="margin:0">Продолжая, вы принимаете условия <a href="/offer" target="_blank">публичной оферты</a> и <a href="/privacy" target="_blank">политики конфиденциальности</a>.</p>
         <p class="small" data-resend hidden><a href="#" data-act="otpResend">Отправить код ещё раз</a></p>
         ${mode === 'login' ? '<p class="small"><a href="#" data-act="authMode" data-m="password">Войти по паролю (для сотрудников)</a></p>' : ''}
       </form>`;

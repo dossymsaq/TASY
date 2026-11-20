@@ -1,6 +1,6 @@
 import React from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
-import { api, saveToken } from '../api';
+import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
+import { API_URL, api, saveToken } from '../api';
 import { Button, Card, Chips, Err, H, Input, T, s } from '../ui';
 
 // Вход и регистрация по SMS-коду. Сотрудники могут войти по паролю.
@@ -59,6 +59,9 @@ export default function Auth({ onLogin }) {
           {sent ? <Input label="Код из SMS" value={f.code} onChangeText={set('code')} keyboardType="number-pad" maxLength={6} autoComplete="sms-otp" textContentType="oneTimeCode" /> : null}
           <Err>{err}</Err>
           <Button title={mode === 'password' || sent ? 'Войти' : 'Получить код по SMS'} onPress={submit} />
+          <T muted size={12}>Продолжая, вы принимаете условия{' '}
+            <T size={12} color="#00a3bf" onPress={() => Linking.openURL(`${API_URL}/offer`)}>публичной оферты</T> и{' '}
+            <T size={12} color="#00a3bf" onPress={() => Linking.openURL(`${API_URL}/privacy`)}>политики конфиденциальности</T>.</T>
           {sent ? link('Отправить код ещё раз', requestCode) : null}
           {mode === 'login' ? link('Войти по паролю (для сотрудников)', () => switchMode('password')) : null}
           {mode === 'password' ? <>
