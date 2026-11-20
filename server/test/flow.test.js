@@ -19,6 +19,8 @@ async function call(method, url, body, token) {
   });
   return { status: res.status, data: await res.json() };
 }
+// Оплата через тестовую страницу банка: берём номер счёта из ссылки и шлём уведомление об успехе
+const payOnline = async (data, result = 'ok') => call('POST', '/payments/callback/mock', { invoice: data.pay_url.split('/').pop(), result });
 const login = async (phone, password) => (await call('POST', '/auth/login', { phone, password })).data.token;
 
 test('полный цикл доставки: 750 ₸ продавец + 750 ₸ покупатель = 1500 ₸', async () => {
@@ -41,12 +43,19 @@ test('полный цикл доставки: 750 ₸ продавец + 750 ₸
   assert.equal(r.status, 409, 'нельзя взять неоплаченный заказ');
 
   r = await call('POST', `/seller/orders/${o.id}/pay`, null, seller);
-  assert.equal(r.data.order.status, 'ready');
+  assert.match(r.data.pay_url, /^\/pay\/mock\//, 'продавец получает ссылку на страницу оплаты');
+  assert.equal((await call('GET', `/track/${o.code}`)).data.order.status, 'new', 'до уведомления банка заказ не оплачен');
+  await payOnline(r.data, 'fail');
+  assert.equal((await call('GET', `/track/${o.code}`)).data.order.status, 'new', 'отказ от оплаты не меняет заказ');
+  r = await call('POST', `/seller/orders/${o.id}/pay`, null, seller);
+  assert.equal((await payOnline(r.data)).data.ok, true);
+  assert.equal((await call('GET', `/track/${o.code}`)).data.order.status, 'ready');
 
   const track = (await call('GET', `/track/${o.code}`)).data.order;
   assert.match(track.confirm_code, /^\d{4}$/);
   r = await call('POST', `/track/${o.code}/pay`);
   assert.equal(r.status, 200);
+  await payOnline(r.data);
   r = await call('POST', `/track/${o.code}/pay`);
   assert.equal(r.status, 400, 'двойная оплата запрещена');
 
@@ -69,7 +78,9 @@ test('оплата наличными курьеру и отмена с возв
   const admin = await login('77000000001', 'admin123');
   const base0 = { buyer_name: 'Ержан', buyer_phone: '77011112233', address: 'ул. Сыганак, 10', district: 'Нура', item_desc: 'Книга', weight_kg: 0.5, pay_now: true };
 
-  const a = (await call('POST', '/seller/orders', base0, seller)).data.order;
+  let ra = (await call('POST', '/seller/orders', base0, seller)).data;
+  await payOnline(ra);
+  const a = (await call('GET', `/track/${ra.order.code}`)).data.order;
   assert.equal(a.status, 'ready');
   const code = (await call('GET', `/track/${a.code}`)).data.order.confirm_code;
   await call('POST', `/courier/orders/${a.id}/take`, null, courier);
@@ -79,7 +90,9 @@ test('оплата наличными курьеру и отмена с возв
   r = await call('POST', `/courier/orders/${a.id}/deliver`, { confirm_code: code, cash_received: true }, courier);
   assert.equal(r.status, 200);
 
-  const b = (await call('POST', '/seller/orders', base0, seller)).data.order;
+  const rb = (await call('POST', '/seller/orders', base0, seller)).data;
+  await payOnline(rb);
+  const b = rb.order;
   r = await call('POST', `/seller/orders/${b.id}/cancel`, null, seller);
   assert.equal(r.data.order.status, 'cancelled');
 
@@ -142,7 +155,9 @@ test('SMS-уведомления о статусах уходят покупат
   const courier = await login('77000000003', 'courier123');
   const admin = await login('77000000001', 'admin123');
   const buyer = '77019998877';
-  const o = (await call('POST', '/seller/orders', { buyer_name: 'Тимур', buyer_phone: buyer, address: 'ул. Достык, 5', district: 'Есиль', item_desc: 'Часы', weight_kg: 0.3, pay_now: true }, seller)).data.order;
+  const ro = (await call('POST', '/seller/orders', { buyer_name: 'Тимур', buyer_phone: buyer, address: 'ул. Достык, 5', district: 'Есиль', item_desc: 'Часы', weight_kg: 0.3, pay_now: true }, seller)).data;
+  await payOnline(ro);
+  const o = ro.order;
   await call('POST', `/courier/orders/${o.id}/take`, null, courier);
   await call('POST', `/courier/orders/${o.id}/pickup`, null, courier);
   await new Promise((r) => setTimeout(r, 20));
@@ -154,4 +169,36 @@ test('SMS-уведомления о статусах уходят покупат
   assert.ok(notifications.some((n) => n.phone === '77000000004' && n.text.includes(o.code)), 'продавец получил уведомление');
   assert.ok(notifications.filter((n) => n.kind === 'otp').every((n) => !/\d{4}/.test(n.text)), 'коды входа не хранятся в журнале');
   assert.equal((await call('GET', '/admin/notifications', null, seller)).status, 403);
+});
+
+test('оплата: повторная оплата возвращается, неверная сумма и чужой счёт отклоняются', async () => {
+  const seller = await login('77000000004', 'seller123');
+  const admin = await login('77000000001', 'admin123');
+  const before = (await call('GET', '/admin/stats', null, admin)).data.revenue;
+  const { order: o } = (await call('POST', '/seller/orders', { buyer_name: 'Алия', buyer_phone: '77015556677', address: 'ул. Туран, 1', district: 'Есиль', item_desc: 'Шарф', weight_kg: 0.2 }, seller)).data;
+  // две вкладки — два счёта, оплачены оба
+  const p1 = (await call('POST', `/seller/orders/${o.id}/pay`, null, seller)).data;
+  const p2 = (await call('POST', `/seller/orders/${o.id}/pay`, null, seller)).data;
+  await payOnline(p1); await payOnline(p2);
+  const track = (await call('GET', `/track/${o.code}`)).data.order;
+  assert.equal(track.status, 'ready');
+  assert.ok(track.events.some((e) => e.note.includes('Лишняя оплата')), 'вторая оплата возвращена');
+  assert.equal((await call('GET', '/admin/stats', null, admin)).data.revenue - before, 750);
+
+  const p3 = (await call('POST', `/track/${o.code}/pay`)).data;
+  let r = await call('POST', '/payments/callback/mock', { invoice: p3.invoice, result: 'ok', amount: 1 });
+  assert.equal(r.data.ok, false, 'сумма не совпадает');
+  assert.equal((await call('GET', `/track/${o.code}`)).data.order.buyer_paid, false);
+  r = await call('POST', '/payments/callback/mock', { invoice: 'NOPE', result: 'ok' });
+  assert.equal(r.data.ok, false, 'несуществующий счёт');
+  assert.equal((await call('POST', '/payments/callback/freedompay', {})).status, 404, 'чужой провайдер отключён');
+});
+
+test('Freedom Pay: подпись запроса и ответа', () => {
+  const { fpSign } = require('../payments');
+  // md5("init_payment.php;10;123;salt;secret")
+  const sig = fpSign('init_payment.php', { pg_salt: 'salt', pg_merchant_id: 123, pg_amount: 10 }, 'secret');
+  const expected = require('node:crypto').createHash('md5').update('init_payment.php;10;123;salt;secret').digest('hex');
+  assert.equal(sig, expected, 'параметры сортируются по имени, разделитель «;», в конце секрет');
+  assert.equal(fpSign('x', { a: 1, pg_sig: 'zzz' }, 's'), fpSign('x', { a: 1 }, 's'), 'pg_sig не участвует в подписи');
 });

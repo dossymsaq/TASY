@@ -97,32 +97,99 @@ function fullOrder(o, { hideConfirm = true } = {}) {
   return r;
 }
 
-async function pay(order, payer, method, actorId) {
-  const field = payer === 'seller' ? 'seller_paid' : 'buyer_paid';
-  if (order[field]) fail(400, 'Уже оплачено');
+// ---------- оплата ----------
+const paidField = (payer) => (payer === 'seller' ? 'seller_paid' : 'buyer_paid');
+const priceOf = (payer) => (payer === 'seller' ? cfg.PRICE_SELLER : cfg.PRICE_BUYER);
+const returnPath = (order, payer) => (payer === 'seller' ? `/app?paid=${order.code}` : `/t/${order.code}?paid=1`);
+
+function checkPayable(order, payer) {
+  if (order[paidField(payer)]) fail(400, 'Уже оплачено');
   if (order.status === 'cancelled') fail(400, 'Заказ отменён');
-  const amount = payer === 'seller' ? cfg.PRICE_SELLER : cfg.PRICE_BUYER;
-  let ref = null;
-  if (method === 'online') {
-    const r = await payments.charge({ orderCode: order.code, payer, amount });
-    if (!r.ok) fail(402, 'Платёж не прошёл');
-    ref = r.provider_ref;
+}
+// Отмечает заказ оплаченным (вызывать внутри транзакции)
+function applyPaid(order, payer, amount, method, actorId) {
+  db.prepare(`UPDATE orders SET ${paidField(payer)} = 1, updated_at = datetime('now') WHERE id = ?`).run(order.id);
+  const who = payer === 'seller' ? 'Продавец' : 'Покупатель';
+  if (payer === 'seller' && order.status === 'new') setStatus(order, 'ready', `${who} оплатил ${amount} ₸`, actorId);
+  else logEvent(order.id, order.status, `${who} оплатил ${amount} ₸${method === 'cash' ? ' (наличными курьеру)' : ''}`, actorId);
+}
+
+// Наличные курьеру — сразу считаются оплатой
+function payCash(order, payer, actorId) {
+  checkPayable(order, payer);
+  const amount = priceOf(payer);
+  tx(() => {
+    db.prepare("INSERT INTO payments (order_id,payer,amount,method,status) VALUES (?,?,?,'cash','paid')").run(order.id, payer, amount);
+    applyPaid(order, payer, amount, 'cash', actorId);
+  });
+}
+
+// Онлайн: создаём счёт у провайдера и возвращаем ссылку на страницу оплаты.
+// Заказ станет оплаченным, когда провайдер пришлёт уведомление (handlePaymentCallback).
+async function startOnlinePayment(order, payer) {
+  checkPayable(order, payer);
+  const amount = priceOf(payer);
+  const invoice = `${order.code}-${payer === 'seller' ? 'S' : 'B'}-${randCode(6)}`;
+  const { lastInsertRowid: pid } = db.prepare("INSERT INTO payments (order_id,payer,amount,method,status,invoice) VALUES (?,?,?,'online','pending',?)").run(order.id, payer, amount, invoice);
+  const back = cfg.PUBLIC_URL + returnPath(order, payer);
+  try {
+    const r = await payments.provider.createInvoice({
+      invoice, amount, description: `Доставка ${order.code}, Жеткіз 750`,
+      resultUrl: `${cfg.PUBLIC_URL}/api/payments/callback/${payments.MODE}`, successUrl: back, failureUrl: back,
+      phone: payer === 'buyer' ? order.buyer_phone : undefined,
+    });
+    if (r.provider_ref) db.prepare('UPDATE payments SET provider_ref = ? WHERE id = ?').run(r.provider_ref, pid);
+    return { pay_url: r.url, invoice };
+  } catch (e) {
+    console.error('Ошибка создания платежа:', e.message);
+    db.prepare("UPDATE payments SET status = 'failed' WHERE id = ?").run(pid);
+    fail(502, 'Платёжный сервис недоступен, попробуйте позже');
+  }
+}
+
+// Уведомление от провайдера. Возвращает true, если уведомление принято.
+async function handlePaymentCallback(cb) {
+  if (cb.invalid) return false;
+  const p = db.prepare('SELECT * FROM payments WHERE invoice = ?').get(cb.invoice);
+  if (!p) return false;
+  if (p.status !== 'pending') return p.status !== 'failed' || !cb.ok; // повторное уведомление — без изменений
+  if (!cb.ok) { db.prepare("UPDATE payments SET status = 'failed' WHERE id = ?").run(p.id); return true; }
+  if (cb.amount !== undefined && cb.amount !== p.amount) {
+    console.error(`Сумма платежа ${p.invoice} не совпадает: ${cb.amount} вместо ${p.amount}`);
+    db.prepare("UPDATE payments SET status = 'failed' WHERE id = ?").run(p.id);
+    return false;
+  }
+  const order = getOrder(p.order_id);
+  const ref = cb.provider_ref || p.provider_ref;
+  if (order[paidField(p.payer)] || order.status === 'cancelled') {
+    // Оплатили дважды (две вкладки) или заказ уже отменён — возвращаем деньги
+    db.prepare("UPDATE payments SET status = 'paid', provider_ref = ? WHERE id = ?").run(ref, p.id);
+    try {
+      await payments.provider.refund({ provider_ref: ref, amount: p.amount });
+      db.prepare("UPDATE payments SET status = 'refunded' WHERE id = ?").run(p.id);
+      logEvent(order.id, order.status, `Лишняя оплата ${p.amount} ₸ возвращена`, null);
+    } catch (e) { console.error('Не удалось вернуть лишнюю оплату', p.invoice, e.message); }
+    return true;
   }
   tx(() => {
-    db.prepare('INSERT INTO payments (order_id,payer,amount,method,status,provider_ref) VALUES (?,?,?,?,?,?)').run(order.id, payer, amount, method, 'paid', ref);
-    db.prepare(`UPDATE orders SET ${field} = 1, updated_at = datetime('now') WHERE id = ?`).run(order.id);
-    const who = payer === 'seller' ? 'Продавец' : 'Покупатель';
-    if (payer === 'seller' && order.status === 'new') setStatus(order, 'ready', `${who} оплатил ${amount} ₸`, actorId);
-    else logEvent(order.id, order.status, `${who} оплатил ${amount} ₸${method === 'cash' ? ' (наличными курьеру)' : ''}`, actorId);
+    db.prepare("UPDATE payments SET status = 'paid', provider_ref = ? WHERE id = ?").run(ref, p.id);
+    applyPaid(order, p.payer, p.amount, 'online', null);
   });
+  return true;
 }
 
 async function cancelOrder(order, reason, actorId) {
   if (['delivered', 'cancelled'].includes(order.status)) fail(400, 'Заказ нельзя отменить');
   const paid = db.prepare("SELECT * FROM payments WHERE order_id = ? AND status = 'paid'").all(order.id);
-  for (const p of paid) if (p.method === 'online') await payments.refund(p);
+  for (const p of paid) {
+    if (p.method !== 'online') continue;
+    try { await payments.provider.refund({ provider_ref: p.provider_ref, amount: p.amount }); }
+    catch (e) { console.error('Ошибка возврата', p.invoice, e.message); fail(502, 'Не удалось оформить возврат. Попробуйте позже или обратитесь в поддержку.'); }
+    db.prepare("UPDATE payments SET status = 'refunded' WHERE id = ?").run(p.id);
+  }
   tx(() => {
     db.prepare("UPDATE payments SET status = 'refunded' WHERE order_id = ? AND status = 'paid'").run(order.id);
+    db.prepare("UPDATE payments SET status = 'failed' WHERE order_id = ? AND status = 'pending'").run(order.id);
     setStatus(order, 'cancelled', (reason || 'Заказ отменён') + (paid.length ? ', оплата возвращена' : ''), actorId);
   });
 }
@@ -259,9 +326,17 @@ api.get('/track/:code', (req, res) => {
   res.json({ order: o, price_buyer: cfg.PRICE_BUYER });
 });
 api.post('/track/:code/pay', async (req, res) => {
-  const o = byCode(req.params.code);
-  await pay(o, 'buyer', 'online', null);
-  res.json({ ok: true });
+  limit('pay-ip:' + req.ip, 30, 3600e3);
+  res.json(await startOnlinePayment(byCode(req.params.code), 'buyer'));
+});
+
+// Уведомления платёжного провайдера (адрес result_url)
+api.all('/payments/callback/:provider', express.urlencoded({ extended: false, limit: '20kb' }), async (req, res) => {
+  if (req.params.provider !== payments.MODE) fail(404, 'Не найдено');
+  let accepted = false;
+  try { accepted = await handlePaymentCallback(payments.provider.parseCallback(req)); }
+  catch (e) { console.error('Ошибка обработки уведомления об оплате:', e); }
+  payments.provider.reply(res, accepted);
 });
 
 // ---------- продавец ----------
@@ -298,8 +373,8 @@ api.post('/seller/orders', auth('seller'), async (req, res) => {
     logEvent(r.lastInsertRowid, 'new', 'Заказ создан', req.user.id);
     return r.lastInsertRowid;
   });
-  if (b.pay_now) await pay(getOrder(id), 'seller', 'online', req.user.id);
-  res.status(201).json({ order: fullOrder(getOrder(id)) });
+  const payment = b.pay_now ? await startOnlinePayment(getOrder(id), 'seller') : {};
+  res.status(201).json({ order: fullOrder(getOrder(id)), ...payment });
 });
 function ownOrder(req) {
   const o = getOrder(req.params.id);
@@ -307,8 +382,7 @@ function ownOrder(req) {
   return o;
 }
 api.post('/seller/orders/:id/pay', auth('seller'), async (req, res) => {
-  await pay(ownOrder(req), 'seller', 'online', req.user.id);
-  res.json({ order: fullOrder(getOrder(req.params.id)) });
+  res.json(await startOnlinePayment(ownOrder(req), 'seller'));
 });
 api.post('/seller/orders/:id/cancel', auth('seller'), async (req, res) => {
   const o = ownOrder(req);
@@ -354,7 +428,7 @@ api.post('/courier/orders/:id/deliver', auth('courier'), async (req, res) => {
   if (String(req.body?.confirm_code || '').trim() !== o.confirm_code) fail(400, 'Неверный код подтверждения от покупателя');
   if (!o.buyer_paid) {
     if (!req.body?.cash_received) fail(400, `Покупатель не оплатил онлайн — получите ${cfg.PRICE_BUYER} ₸ наличными`);
-    await pay(o, 'buyer', 'cash', req.user.id);
+    payCash(o, 'buyer', req.user.id);
   }
   setStatus(getOrder(o.id), 'delivered', 'Посылка вручена покупателю', req.user.id);
   res.json({ ok: true });
@@ -505,6 +579,27 @@ const WEB = path.join(__dirname, '..', 'web');
 app.use(express.static(WEB, { extensions: ['html'] }));
 app.get('/t/:code', (req, res) => res.sendFile(path.join(WEB, 'track.html')));
 
+// Тестовая страница оплаты (только PAYMENT_MODE=mock) — имитирует страницу банка
+if (payments.MODE === 'mock') {
+  app.get('/pay/mock/:invoice', (req, res) => {
+    const p = db.prepare('SELECT p.*, o.code FROM payments p JOIN orders o ON o.id = p.order_id WHERE p.invoice = ?').get(req.params.invoice);
+    if (!p) return res.status(404).send('Счёт не найден');
+    const back = returnPath(p, p.payer);
+    res.send(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Тестовая оплата</title><link rel="stylesheet" href="/styles.css"></head><body><main class="wrap" style="max-width:420px;padding-top:40px">
+<div class="card stack"><p class="small muted" style="margin:0">ТЕСТОВЫЙ РЕЖИМ — деньги не списываются</p>
+<h2 style="margin:0">Оплата ${p.amount.toLocaleString('ru-RU')} ₸</h2><p class="muted" style="margin:0">Доставка ${p.code}, Жеткіз 750</p>
+${p.status === 'pending' ? `<button class="btn sun block" data-r="ok">Оплатить</button><button class="btn ghost block" data-r="fail">Отказаться</button>` : `<p>Счёт уже обработан.</p><a class="btn block" href="${back}">Вернуться</a>`}
+</div></main><script>
+document.querySelectorAll('[data-r]').forEach((b) => b.onclick = async () => {
+  document.querySelectorAll('[data-r]').forEach((x) => x.disabled = true);
+  await fetch('/api/payments/callback/mock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invoice: ${JSON.stringify(p.invoice)}, result: b.dataset.r }) });
+  location.href = ${JSON.stringify(back)};
+});
+</script></body></html>`);
+  });
+}
+
 app.use((err, req, res, next) => {
   const status = err.status || (err.type === 'entity.parse.failed' ? 400 : 500);
   if (status === 500) console.error(err);
@@ -513,6 +608,7 @@ app.use((err, req, res, next) => {
 
 if (require.main === module) {
   if (process.env.NODE_ENV === 'production' && cfg.OTP_SECRET === 'dev-otp-secret') console.warn('ВНИМАНИЕ: задайте OTP_SECRET — случайную строку для защиты SMS-кодов');
+  if (process.env.NODE_ENV === 'production' && payments.MODE === 'mock') console.warn('ВНИМАНИЕ: платежи в тестовом режиме (PAYMENT_MODE=mock) — любой может отметить заказ оплаченным');
   if (sms.MODE === 'mock') console.log('SMS в тестовом режиме: сообщения пишутся в консоль и в журнал (Админ → SMS)');
   app.listen(cfg.PORT, () => console.log(`Жеткіз 750 запущен: http://localhost:${cfg.PORT}`));
 }

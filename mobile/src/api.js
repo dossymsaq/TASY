@@ -1,5 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 // Адрес сервера. Задайте EXPO_PUBLIC_API_URL, например: EXPO_PUBLIC_API_URL=https://api.jetkiz750.kz
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/$/, '');
@@ -42,3 +42,11 @@ export const date = (s) => {
   const z = (n) => String(n).padStart(2, '0');
   return `${z(d.getDate())}.${z(d.getMonth() + 1)} ${z(d.getHours())}:${z(d.getMinutes())}`;
 };
+
+// Открывает страницу оплаты банка в браузере. После оплаты пользователь возвращается в приложение,
+// и экраны обновляются автоматически (см. useLoad в common.js).
+export async function openPayment(payUrl) {
+  const url = payUrl.startsWith('/') ? API_URL + payUrl : payUrl;
+  if (Platform.OS === 'web') { globalThis.location.href = url; return; }
+  await Linking.openURL(url);
+}

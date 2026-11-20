@@ -1,6 +1,6 @@
 import React from 'react';
 import { Linking, Share, View } from 'react-native';
-import { API_URL, api, money } from '../api';
+import { API_URL, api, money, openPayment } from '../api';
 import { Empty, OrderCard, Scroll, alertError, confirm, useLoad } from '../common';
 import { useNav } from '../nav';
 import { Button, Card, Chips, Err, H, Input, T, s } from '../ui';
@@ -21,9 +21,10 @@ export function NewOrder() {
   const submit = async () => {
     setErr('');
     try {
-      const { order } = await api('POST', '/seller/orders', { ...f, weight_kg: Number(String(f.weight_kg).replace(',', '.')), pay_now: true });
+      const { order, pay_url } = await api('POST', '/seller/orders', { ...f, weight_kg: Number(String(f.weight_kg).replace(',', '.')), pay_now: true });
       setF(empty);
       push('shared', { order, title: 'Заказ создан' });
+      await openPayment(pay_url);
     } catch (e) { setErr(e.message); }
   };
   return (
@@ -41,7 +42,7 @@ export function NewOrder() {
         <Input label="Адрес забора" value={f.pickup_address} onChangeText={set('pickup_address')} />
         <Input label="Комментарий курьеру" value={f.comment} onChangeText={set('comment')} multiline />
         <Err>{err}</Err>
-        <Button kind="sun" title={`Создать и оплатить ${money(cfg.price_seller)}`} onPress={submit} />
+        <Button kind="sun" title={`Создать и перейти к оплате ${money(cfg.price_seller)}`} onPress={submit} />
       </Card>
     </Scroll>
   );
@@ -79,7 +80,7 @@ export function SellerOrders() {
       {data && !data.orders.length ? <Empty>Заказов пока нет</Empty> : null}
       {data?.orders.map((o) => (
         <OrderCard key={o.id} o={o}>
-          {!o.seller_paid && o.status === 'new' ? <Button small kind="sun" title={`Оплатить ${money(cfg.price_seller)}`} onPress={act(() => api('POST', `/seller/orders/${o.id}/pay`))} /> : null}
+          {!o.seller_paid && o.status === 'new' ? <Button small kind="sun" title={`Оплатить ${money(cfg.price_seller)}`} onPress={act(async () => openPayment((await api('POST', `/seller/orders/${o.id}/pay`)).pay_url))} /> : null}
           {o.status !== 'cancelled' ? <Button small kind="ghost" title="Ссылка покупателю" onPress={() => shareOrder(o, user, cfg)} /> : null}
           {['new', 'ready'].includes(o.status) ? <Button small kind="ghost" title="Отменить" onPress={act(async () => {
             if (await confirm('Отменить заказ?', 'Оплата вернётся')) await api('POST', `/seller/orders/${o.id}/cancel`);

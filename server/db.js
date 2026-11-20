@@ -65,8 +65,9 @@ CREATE TABLE IF NOT EXISTS payments (
   payer TEXT NOT NULL CHECK (payer IN ('seller','buyer')),
   amount INTEGER NOT NULL,
   method TEXT NOT NULL,          -- online | cash
-  status TEXT NOT NULL,          -- paid | refunded
+  status TEXT NOT NULL,          -- pending | paid | failed | refunded
   provider_ref TEXT,
+  invoice TEXT UNIQUE,           -- номер счёта у платёжного провайдера
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -115,6 +116,13 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `);
+
+// Миграции для баз, созданных предыдущими версиями
+const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+if (!cols('payments').includes('invoice')) {
+  db.exec('ALTER TABLE payments ADD COLUMN invoice TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice)');
+}
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');

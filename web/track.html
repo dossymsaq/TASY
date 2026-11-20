@@ -64,7 +64,7 @@ async function load() {
       </div>`;
     document.getElementById('pay')?.addEventListener('click', async (e) => {
       e.target.disabled = true;
-      try { await api('POST', `/track/${encodeURIComponent(o.code)}/pay`); toast('Оплата прошла успешно'); load(); }
+      try { const { pay_url } = await api('POST', `/track/${encodeURIComponent(o.code)}/pay`); location.href = pay_url; }
       catch (err) { toast(err.message); e.target.disabled = false; }
     });
     document.getElementById('ticket').addEventListener('submit', async (e) => {
@@ -75,11 +75,23 @@ async function load() {
         e.target.innerHTML = '<p class="paid">Обращение отправлено. Мы перезвоним вам.</p>';
       } catch (err) { e.target.querySelector('.err').textContent = err.message; }
     });
+    return o.buyer_paid;
   } catch (err) {
     root.innerHTML = `<div class="card"><h2>Заказ не найден</h2><p class="muted">${esc(err.message)}</p><a class="btn" href="/">На главную</a></div>`;
   }
 }
-load();
+// Возврат со страницы оплаты: ждём уведомление банка
+(async () => {
+  const back = new URLSearchParams(location.search).has('paid');
+  if (back) history.replaceState(null, '', location.pathname);
+  for (let i = 0; i < (back ? 8 : 1); i++) {
+    const paid = await load();
+    if (!back) return;
+    if (paid) return toast('Оплата прошла успешно');
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  toast('Оплата не подтверждена. Если деньги списались — статус обновится в течение нескольких минут.');
+})();
 setInterval(() => { if (!document.hidden && !document.activeElement?.closest('form')) load(); }, 30000);
 </script>
 </body>

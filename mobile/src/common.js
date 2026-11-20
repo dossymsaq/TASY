@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Linking, RefreshControl, ScrollView, View } from 'react-native';
+import { Alert, AppState, Linking, RefreshControl, ScrollView, View } from 'react-native';
 import { phone, date } from './api';
 import { Badge, Card, Empty, T, s, useTheme } from './ui';
 
@@ -15,6 +15,11 @@ export function useLoad(fn, deps = []) {
     finally { setRefreshing(false); }
   }, deps); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { load(); }, [load]);
+  // Обновляем данные, когда пользователь возвращается в приложение (например, со страницы оплаты)
+  React.useEffect(() => {
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') load(); });
+    return () => sub.remove();
+  }, [load]);
   return { data, error, refreshing, load };
 }
 export function Scroll({ children, refreshing, onRefresh, error }) {

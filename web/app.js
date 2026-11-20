@@ -212,7 +212,7 @@ VIEWS.seller = {
         <div class="full"><label>Адрес забора</label><input name="pickup_address" value="${esc(S.user.pickup_address)}" required></div>
         <div class="full"><label>Комментарий курьеру</label><textarea name="comment" placeholder="Необязательно"></textarea></div>
         <div class="full err"></div>
-        <div class="full row"><button class="btn sun">Создать и оплатить ${money(c.price_seller)}</button></div>
+        <div class="full row"><button class="btn sun">Создать и перейти к оплате ${money(c.price_seller)}</button></div>
       </form></div>`;
   },
   orders: async () => {
@@ -231,13 +231,25 @@ VIEWS.seller = {
   },
 };
 VIEWS.seller.support = VIEWS.common.support;
+// Оплата: переходим на страницу банка, после оплаты банк вернёт на /app?paid=КОД
 forms.createOrder = async (f) => {
-  const { order } = await api('POST', '/seller/orders', { ...f, pay_now: true });
-  toast('Заказ создан и оплачен');
-  await go('orders');
-  showShare(order);
+  const { pay_url } = await api('POST', '/seller/orders', { ...f, pay_now: true });
+  location.href = pay_url;
 };
-actions.sellerPay = async (d) => { await api('POST', `/seller/orders/${d.id}/pay`); toast('Оплачено'); reload(); };
+actions.sellerPay = async (d) => { const { pay_url } = await api('POST', `/seller/orders/${d.id}/pay`); location.href = pay_url; };
+// Возврат со страницы оплаты: уведомление банка может прийти с задержкой — подождём
+async function afterPayment(code) {
+  history.replaceState(null, '', '/app');
+  for (let i = 0; i < 8; i++) {
+    const o = (await api('GET', '/seller/orders')).orders.find((x) => x.code === code);
+    if (!o) return go('orders');
+    if (o.seller_paid) { await go('orders'); toast('Оплата прошла'); return showShare(o); }
+    if (i === 0) $view.innerHTML = '<div class="card">Проверяем оплату…</div>';
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  await go('orders');
+  toast('Оплата не подтверждена. Если деньги списались — статус обновится в течение нескольких минут.');
+}
 actions.sellerCancel = async (d) => { if (!confirm('Отменить заказ? Оплата вернётся.')) return; await api('POST', `/seller/orders/${d.id}/cancel`); reload(); };
 actions.share = async (d) => { const { orders } = await api('GET', '/seller/orders'); showShare(orders.find((o) => o.code === d.code)); };
 function showShare(o) {
@@ -398,6 +410,8 @@ async function start() {
   if (!store.token) return authView();
   try { S.user = (await api('GET', '/me')).user; }
   catch { store.token = null; return authView(); }
+  const paid = new URLSearchParams(location.search).get('paid');
+  if (paid && S.user.role === 'seller') { S.tab = 'orders'; renderTabs(); return afterPayment(paid); }
   go(TABS[S.user.role][0][0]);
 }
 start();
