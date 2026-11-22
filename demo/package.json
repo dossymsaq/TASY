@@ -1,0 +1,7 @@
+{
+  "name": "jetkiz750-demo",
+  "private": true,
+  "description": "Демо-версия сайта, где сервер работает в браузере (для показа на claude.ai)",
+  "scripts": { "build": "bash build.sh" },
+  "devDependencies": { "esbuild": "0.24.2", "sql.js": "1.12.0" }
+}
