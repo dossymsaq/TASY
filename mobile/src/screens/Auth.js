@@ -1,6 +1,6 @@
 import React from 'react';
 import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
-import { API_URL, api, saveToken } from '../api';
+import { DEMO, api, openSite, saveToken } from '../api';
 import { Button, Card, Chips, Err, H, Input, T, s } from '../ui';
 
 // Вход и регистрация по SMS-коду. Сотрудники могут войти по паролю.
@@ -46,6 +46,10 @@ export default function Auth({ onLogin }) {
           <T bold size={30}>Жеткіз <T bold size={30} style={{ backgroundColor: '#fec50c', color: '#14212b' }}> 750 </T></T>
           <T muted style={{ textAlign: 'center', marginTop: 6 }}>Доставка по Астане до 2 кг.{'\n'}750 ₸ платит продавец + 750 ₸ покупатель</T>
         </View>
+        {DEMO ? <Card style={{ backgroundColor: '#fec50c', borderColor: '#fec50c' }}>
+          <T bold color="#14212b">Демо-версия</T>
+          <T size={13} color="#14212b">Интернет не нужен, данные хранятся на телефоне. Нажмите «Войти по паролю (для сотрудников)» — там готовые аккаунты продавца, покупателя, курьера и админа. Код из SMS в демо подставляется сам.</T>
+        </Card> : null}
         <Chips value={mode === 'password' ? 'login' : mode} onChange={switchMode} options={[['login', 'Вход'], ['seller', 'Я продавец'], ['client', 'Я покупатель']]} />
         <Card style={{ gap: 12 }}>
           <H>{title}</H>
@@ -60,8 +64,8 @@ export default function Auth({ onLogin }) {
           <Err>{err}</Err>
           <Button title={mode === 'password' || sent ? 'Войти' : 'Получить код по SMS'} onPress={submit} />
           <T muted size={12}>Продолжая, вы принимаете условия{' '}
-            <T size={12} color="#00a3bf" onPress={() => Linking.openURL(`${API_URL}/offer`)}>публичной оферты</T> и{' '}
-            <T size={12} color="#00a3bf" onPress={() => Linking.openURL(`${API_URL}/privacy`)}>политики конфиденциальности</T>.</T>
+            <T size={12} color="#00a3bf" onPress={() => openSite('/offer')}>публичной оферты</T> и{' '}
+            <T size={12} color="#00a3bf" onPress={() => openSite('/privacy')}>политики конфиденциальности</T>.</T>
           {sent ? link('Отправить код ещё раз', requestCode) : null}
           {mode === 'login' ? link('Войти по паролю (для сотрудников)', () => switchMode('password')) : null}
           {mode === 'password' ? <>

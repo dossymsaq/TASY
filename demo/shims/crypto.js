@@ -1,5 +1,7 @@
 // Минимальный node:crypto для демо (SHA-256 синхронно; scrypt заменён на SHA-256 — только для демо)
-const { Buffer } = require('./buffer');
+const { Buffer, utf8enc } = require('./buffer');
+// В React Native нет crypto.getRandomValues — для демо хватает Math.random
+const fillRandom = (arr) => { if (globalThis.crypto?.getRandomValues) return globalThis.crypto.getRandomValues(arr); for (let i = 0; i < arr.length; i++) arr[i] = Math.floor(Math.random() * 2 ** (arr.BYTES_PER_ELEMENT * 8)); return arr; };
 const K = new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
 function sha256(bytes) {
   const l = bytes.length, n = ((l + 9 + 63) >> 6) << 6, m = new Uint8Array(n);
@@ -21,13 +23,13 @@ function sha256(bytes) {
   const out = Buffer.alloc(32); const od = new DataView(out.buffer);
   H.forEach((v, i) => od.setUint32(i * 4, v)); return out;
 }
-const enc = (s) => (typeof s === 'string' ? new TextEncoder().encode(s) : s);
+const enc = (s) => (typeof s === 'string' ? utf8enc(s) : s);
 function createHash() {
   let data = '';
   return { update(s) { data += s; return this; }, digest(f) { const b = sha256(enc(data)); return f ? b.toString(f) : b; } };
 }
-function randomBytes(n) { const b = Buffer.alloc(n); globalThis.crypto.getRandomValues(b); return b; }
-function randomInt(a, b) { if (b === undefined) { b = a; a = 0; } const r = new Uint32Array(1); globalThis.crypto.getRandomValues(r); return a + (r[0] % (b - a)); }
+function randomBytes(n) { const b = Buffer.alloc(n); fillRandom(b); return b; }
+function randomInt(a, b) { if (b === undefined) { b = a; a = 0; } const r = new Uint32Array(1); fillRandom(r); return a + (r[0] % (b - a)); }
 function scryptSync(pw, salt, len) { const out = Buffer.alloc(len); let h = sha256(enc(salt + ':' + pw)); for (let i = 0; i < len; i += 32) { out.set(h.subarray(0, Math.min(32, len - i)), i); h = sha256(h); } return out; }
 function timingSafeEqual(a, b) { if (a.length !== b.length) throw new RangeError('Input buffers must have the same byte length'); let r = 0; for (let i = 0; i < a.length; i++) r |= a[i] ^ b[i]; return r === 0; }
 module.exports = { createHash, randomBytes, randomInt, scryptSync, timingSafeEqual };

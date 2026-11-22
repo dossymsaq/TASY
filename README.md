@@ -106,6 +106,17 @@ EXPO_PUBLIC_API_URL=http://<IP-компьютера>:3000 npx expo start   # о�
 npx eas-cli@latest build -p android                              # сборка для Google Play / App Store
 ```
 
+**Демо-версия приложения** (`EXPO_PUBLIC_API_URL=demo`) работает без сервера и интернета: внутри приложения
+запускается тот же код из `server/` (SQLite через sql.js, `demo/build-rn.sh` → `mobile/src/demo/backend.generated.js`),
+данные хранятся на телефоне, оплата тестовая. Сборка APK:
+
+```bash
+bash demo/build-rn.sh                          # после изменений в server/
+cd mobile && npx expo prebuild -p android
+cd android && EXPO_PUBLIC_API_URL=demo ./gradlew assembleRelease   # → app/build/outputs/apk/release/
+# или в облаке Expo: npx eas-cli@latest build -p android --profile demo
+```
+
 ## Что нужно до запуска в работу
 
 1. **Платежи.** Схема оплаты через банк готова, адаптер Freedom Pay написан. Осталось: договор с банком, ключи, сверка адаптера с документацией и тестовый платёж (см. «Оплата»).

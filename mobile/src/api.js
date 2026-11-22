@@ -1,8 +1,14 @@
 import * as SecureStore from 'expo-secure-store';
-import { Linking, Platform } from 'react-native';
+import { Alert, Linking, Platform } from 'react-native';
 
-// Адрес сервера. Задайте EXPO_PUBLIC_API_URL, например: EXPO_PUBLIC_API_URL=https://api.jetkiz750.kz
-export const API_URL = (process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/$/, '');
+// Адрес сервера. Задайте EXPO_PUBLIC_API_URL, например: EXPO_PUBLIC_API_URL=https://jetkiz750.kz
+// EXPO_PUBLIC_API_URL=demo — демо-режим: сервер работает внутри приложения, интернет не нужен.
+const RAW_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+export const DEMO = RAW_URL === 'demo';
+export const API_URL = DEMO ? 'https://jetkiz750.kz' : RAW_URL.replace(/\/$/, '');
+// Сайт: ссылки для покупателя, оферта, политика
+export const SITE_URL = API_URL;
+const demo = DEMO ? require('./demo') : null;
 
 let token = null;
 const KEY = 'jt_token';
@@ -21,6 +27,11 @@ export async function saveToken(t) {
 }
 
 export async function api(method, path, body) {
+  if (DEMO) {
+    const r = await demo.demoBackend().request(method, path, body, token);
+    if (r.status >= 400) { const e = new Error(r.data.error || 'Ошибка'); e.status = r.status; throw e; }
+    return r.data;
+  }
   let res;
   try {
     res = await fetch(API_URL + '/api' + path, {
@@ -46,7 +57,28 @@ export const date = (s) => {
 // Открывает страницу оплаты банка в браузере. После оплаты пользователь возвращается в приложение,
 // и экраны обновляются автоматически (см. useLoad в common.js).
 export async function openPayment(payUrl) {
+  if (DEMO) return demoPayment(payUrl);
   const url = payUrl.startsWith('/') ? API_URL + payUrl : payUrl;
   if (Platform.OS === 'web') { globalThis.location.href = url; return; }
   await Linking.openURL(url);
+}
+
+// Открыть страницу сайта (оферта, политика). В демо-режиме сайта ещё нет.
+export function openSite(path) {
+  if (DEMO) { Alert.alert('Демо-версия', 'Документы будут доступны на сайте после запуска сервиса.'); return; }
+  Linking.openURL(SITE_URL + path);
+}
+
+// Демо: вместо страницы банка — окно с тестовой оплатой
+async function demoPayment(payUrl) {
+  const invoice = payUrl.split('/').pop();
+  const info = await demo.demoBackend().payInfo(invoice);
+  const choose = await new Promise((resolve) => Alert.alert(
+    'Тестовая оплата',
+    `${money(info?.amount)} · доставка ${info?.code}\nДемо-режим: деньги не списываются.`,
+    [{ text: 'Отказаться', style: 'cancel', onPress: () => resolve('fail') }, { text: 'Оплатить', onPress: () => resolve('ok') }],
+    { cancelable: true, onDismiss: () => resolve('fail') },
+  ));
+  await api('POST', '/payments/callback/mock', { invoice, result: choose });
+  if (choose === 'ok') Alert.alert('Оплачено', 'Тестовая оплата прошла.');
 }

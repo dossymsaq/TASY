@@ -1,6 +1,6 @@
 import React from 'react';
 import { Linking } from 'react-native';
-import { API_URL, api, phone } from '../api';
+import { API_URL, DEMO, api, openSite, phone } from '../api';
 import { Scroll, alertError, confirm } from '../common';
 import { useNav } from '../nav';
 import { Button, Card, Err, H, Input, T } from '../ui';
@@ -43,9 +43,16 @@ export default function Profile() {
         <Input label="Чтобы подтвердить, введите УДАЛИТЬ" value={del} onChangeText={setDel} autoCapitalize="characters" />
         <Button kind="bad" title="Удалить аккаунт навсегда" onPress={deleteAccount} />
       </Card> : null}
-      <Button kind="ghost" small title="Публичная оферта" onPress={() => Linking.openURL(`${API_URL}/offer`)} />
-      <Button kind="ghost" small title="Политика конфиденциальности" onPress={() => Linking.openURL(`${API_URL}/privacy`)} />
-      <T muted size={12} style={{ textAlign: 'center' }}>Сервер: {API_URL}</T>
+      <Button kind="ghost" small title="Публичная оферта" onPress={() => openSite('/offer')} />
+      <Button kind="ghost" small title="Политика конфиденциальности" onPress={() => openSite('/privacy')} />
+      {DEMO ? <Card style={{ gap: 8 }}>
+        <T bold>Демо-версия</T>
+        <T muted size={13}>Сервер работает внутри приложения, данные хранятся только на этом телефоне. Оплата тестовая.</T>
+        <Button kind="ghost" small title="Начать заново (стереть демо-данные)" onPress={async () => {
+          if (!(await confirm('Стереть демо-данные?', 'После этого закройте и снова откройте приложение — появятся исходные демо-заказы.'))) return;
+          require('../demo').resetDemo(); await logout();
+        }} />
+      </Card> : <T muted size={12} style={{ textAlign: 'center' }}>Сервер: {API_URL}</T>}
     </Scroll>
   );
 }

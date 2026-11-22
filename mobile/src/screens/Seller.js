@@ -1,11 +1,11 @@
 import React from 'react';
 import { Linking, Share, View } from 'react-native';
-import { API_URL, api, money, openPayment } from '../api';
+import { SITE_URL, api, money, openPayment } from '../api';
 import { Empty, OrderCard, Scroll, alertError, confirm, useLoad } from '../common';
 import { useNav } from '../nav';
 import { Button, Card, Chips, Err, H, Input, T, s } from '../ui';
 
-const trackLink = (o) => `${API_URL}/t/${o.code}`;
+const trackLink = (o) => `${SITE_URL}/t/${o.code}`;
 export async function shareOrder(o, user, cfg) {
   const text = `Здравствуйте! Ваш заказ из «${user.shop_name}» доставит курьер Жеткіз 750. Оплата доставки ${money(cfg.price_buyer)} и отслеживание: ${trackLink(o)}`;
   await Share.share({ message: text });

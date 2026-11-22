@@ -1,15 +1,35 @@
 {
-  "cli": { "version": ">= 12.0.0", "appVersionSource": "remote" },
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "remote"
+  },
   "build": {
+    "demo": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "demo"
+      }
+    },
     "preview": {
       "distribution": "internal",
-      "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_API_URL": "https://jetkiz750.kz" }
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://jetkiz750.kz"
+      }
     },
     "production": {
       "autoIncrement": true,
-      "env": { "EXPO_PUBLIC_API_URL": "https://jetkiz750.kz" }
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://jetkiz750.kz"
+      }
     }
   },
-  "submit": { "production": {} }
+  "submit": {
+    "production": {}
+  }
 }
