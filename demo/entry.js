@@ -11,6 +11,7 @@ const b64 = {
 const load = () => { try { const s = localStorage.getItem(KEY); return s ? b64.dec(s) : null; } catch { return null; } };
 
 let app, dbw;
+let canSave = false; // false, пока создаются демо-заказы и после «Начать заново»
 let resolveApp; const appReady = new Promise((r) => (resolveApp = r));
 const ready = initSqlJs().then(async (SQL) => {
   globalThis.__SQL = SQL;
@@ -19,13 +20,15 @@ const ready = initSqlJs().then(async (SQL) => {
   app = require('./srv/index.js');
   dbw = require('./srv/db.js').db;
   resolveApp();
-  if (!bytes) { await require('./srv/demo.js')('internal:'); save(); }
+  if (!bytes) await require('./srv/demo.js')('internal:');
+  canSave = true;
+  if (!bytes) save();
 });
 
 // Сохраняем сразу после каждого изменения (страница может тут же перейти на другую)
 // и ещё раз чуть позже — для фоновых записей (журнал уведомлений)
 function saveNow() {
-  if (!dbw) return;
+  if (!dbw || !canSave) return;
   try { const u8 = dbw.d.export(); dbw.d.exec('PRAGMA foreign_keys = ON'); localStorage.setItem(KEY, b64.enc(u8)); } catch (e) { console.warn('Демо: не удалось сохранить', e.message); }
 }
 let saveTimer = null;
@@ -79,7 +82,7 @@ globalThis.jdemoPrompt = () => 'демо';
 globalThis.jdemo = {
   ready,
   async payInfo(invoice) { await ready; return dbw.prepare('SELECT p.invoice, p.amount, p.payer, p.status, o.code FROM payments p JOIN orders o ON o.id = p.order_id WHERE p.invoice = ?').get(invoice); },
-  reset() { try { localStorage.removeItem(KEY); localStorage.removeItem('jt_token'); } catch {} location.href = 'index.html'; },
+  reset() { canSave = false; clearTimeout(saveTimer); try { localStorage.removeItem(KEY); localStorage.removeItem('jt_token'); } catch {} location.href = 'index.html'; },
 };
 
 // Плашка «демо» сверху каждой страницы

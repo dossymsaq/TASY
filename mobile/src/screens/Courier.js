@@ -66,9 +66,17 @@ export function Deliver({ order, onDone }) {
 }
 
 export function Done() {
-  const { data, error, refreshing, load } = useCourier();
+  const { data, error, refreshing, load } = useLoad(async () => {
+    const [o, cash] = await Promise.all([api('GET', '/courier/orders'), api('GET', '/courier/cash')]);
+    return { ...o, cash };
+  });
   return (
     <Scroll refreshing={refreshing} onRefresh={load} error={error}>
+      {data ? <Card>
+        <T bold size={24}>{money(data.cash.on_hand)}</T><T muted>наличные на руках — сдайте администратору</T>
+        {data.cash.items.map((i) => <T key={i.id} size={13} muted>{i.code} · {i.buyer_name} · {money(i.amount)}</T>)}
+        {data.cash.handovers[0] ? <T size={13} muted>Последняя сдача: {money(data.cash.handovers[0].amount)}</T> : null}
+      </Card> : null}
       {data ? <Card><T bold size={24}>{data.done.length}</T><T muted>последних доставок</T></Card> : null}
       {data?.done.map((o) => <OrderCard key={o.id} o={o} />)}
     </Scroll>

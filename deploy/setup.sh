@@ -69,4 +69,5 @@ sleep 2
 curl -fsS http://127.0.0.1:3000/api/health && echo
 echo "Готово: https://$DOMAIN"
 echo "Дальше: 1) заполните /etc/jetkiz750.env и выполните: systemctl restart jetkiz750"
-echo "        2) смените пароли демо-аккаунтов (или заблокируйте их в кабинете админа)"
+echo "        2) создайте администратора:"
+echo "           cd $APP/server && sudo -u jetkiz DB_FILE=/var/lib/jetkiz750/data.sqlite NODE_ENV=production npm run create-admin"

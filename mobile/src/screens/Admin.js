@@ -23,7 +23,7 @@ export function Dashboard() {
           <Stat v={(d.byStatus.ready || 0) + (d.byStatus.assigned || 0) + (d.byStatus.picked_up || 0)} l="в работе" />
           <Stat v={d.byStatus.new || 0} l="ждут оплаты продавца" />
           <Stat v={d.openTickets} l="открытых обращений" />
-          <Stat v={money(d.cash)} l="наличные у курьеров" />
+          <Stat v={money(d.cashOnHands)} l="наличные на руках у курьеров" />
         </View>
         <Card>
           <H>Выручка за 14 дней</H>
@@ -91,12 +91,21 @@ export function Assign({ order, onDone }) {
 
 export function Couriers() {
   const { data, error, refreshing, load } = useLoad(() => api('GET', '/admin/couriers'));
+  // Курьер сдал наличные, полученные от покупателей
+  const handover = (c) => async () => {
+    if (!(await confirm('Принять наличные?', `Вы получили ${money(c.cash_on_hand)} от курьера ${c.name}?`))) return;
+    try { await api('POST', `/admin/cash/${c.id}/handover`, { amount: c.cash_on_hand }); load(); } catch (e) { alertError(e); load(); }
+  };
+  const total = data ? data.couriers.reduce((t, c) => t + c.cash_on_hand, 0) : 0;
   return (
     <Scroll refreshing={refreshing} onRefresh={load} error={error}>
+      {data ? <Stat v={money(total)} l="наличные на руках у курьеров — ещё не сданы" /> : null}
       {data?.couriers.map((c) => (
         <Card key={c.id}>
           <View style={s.between}><T bold>{c.name}</T><T color={c.active ? '#1f9d55' : '#c27c00'} bold size={13}>{c.active ? 'активен' : 'заблокирован'}</T></View>
           <T muted size={14}>{phone(c.phone)} · в работе: {c.active_orders} · доставлено: {c.delivered}</T>
+          <T size={14}>Наличные на руках: <T bold size={14}>{money(c.cash_on_hand)}</T></T>
+          {c.cash_on_hand ? <Button small kind="sun" title={`Принял ${money(c.cash_on_hand)}`} onPress={handover(c)} /> : null}
         </Card>
       ))}
     </Scroll>

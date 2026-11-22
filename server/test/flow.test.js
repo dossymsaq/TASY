@@ -232,3 +232,60 @@ test('push: курьеры узнают о новом заказе, продав
   const log2 = (await call('GET', '/admin/notifications', null, admin)).data.notifications;
   assert.ok(log2.some((n) => n.kind === 'status' && n.phone === '77000000004' && n.text.includes(r2.order.code)), 'без приложения — снова SMS');
 });
+
+test('касса курьеров: наличные числятся за курьером, пока админ их не примет', async () => {
+  const seller = await login('77000000004', 'seller123');
+  const courier = await login('77000000003', 'courier123');
+  const admin = await login('77000000001', 'admin123');
+  const before = (await call('GET', '/courier/cash', null, courier)).data.on_hand;
+  const ro = (await call('POST', '/seller/orders', { buyer_name: 'Арман', buyer_phone: '77012340000', address: 'ул. Бейбитшилик, 9', district: 'Сарыарка', item_desc: 'Чехол', weight_kg: 0.1, pay_now: true }, seller)).data;
+  await payOnline(ro);
+  await call('POST', `/courier/orders/${ro.order.id}/take`, null, courier);
+  await call('POST', `/courier/orders/${ro.order.id}/pickup`, null, courier);
+  const code = (await call('GET', `/track/${ro.order.code}`)).data.order.confirm_code;
+  await call('POST', `/courier/orders/${ro.order.id}/deliver`, { confirm_code: code, cash_received: true }, courier);
+
+  const mine = (await call('GET', '/courier/cash', null, courier)).data;
+  assert.equal(mine.on_hand, before + 750);
+  assert.ok(mine.items.some((i) => i.code === ro.order.code));
+  const cash = (await call('GET', '/admin/cash', null, admin)).data;
+  const c = cash.couriers.find((x) => x.phone === '77000000003');
+  assert.equal(c.on_hand, before + 750);
+  assert.equal((await call('GET', '/admin/stats', null, admin)).data.cashOnHands, cash.total_on_hand);
+
+  assert.equal((await call('POST', `/admin/cash/${c.id}/handover`, { amount: 1 }, admin)).status, 409, 'сумма должна совпасть');
+  assert.equal((await call('GET', '/admin/cash', null, courier)).status, 403, 'курьер не видит кассу всех');
+  const r = await call('POST', `/admin/cash/${c.id}/handover`, { amount: c.on_hand }, admin);
+  assert.equal(r.data.amount, c.on_hand);
+  const after = (await call('GET', '/courier/cash', null, courier)).data;
+  assert.equal(after.on_hand, 0);
+  assert.equal(after.handovers[0].amount, c.on_hand);
+  assert.equal((await call('POST', `/admin/cash/${c.id}/handover`, { amount: 0 }, admin)).status, 400, 'нечего сдавать');
+});
+
+test('удаление аккаунта: данные стёрты, номер свободен, сотрудник удалить себя не может', async () => {
+  const phone = '77015557788';
+  let r = await call('POST', '/auth/otp/request', { phone });
+  r = await call('POST', '/auth/otp/verify', { phone, code: r.data.dev_code, name: 'Удаляемый', role: 'seller', shop_name: 'Shop', pickup_address: 'ул. Абая, 1' });
+  const token = r.data.token;
+  const o = (await call('POST', '/seller/orders', { buyer_name: 'Б', buyer_phone: '77010000099', address: 'ул. 1', district: 'Нура', item_desc: 'X', weight_kg: 0.1 }, token)).data.order;
+  // покупатель успел оплатить свою часть по ещё неоплаченному продавцом заказу
+  await payOnline((await call('POST', `/track/${o.code}/pay`)).data);
+
+  assert.equal((await call('DELETE', '/me', {}, token)).status, 400, 'нужно подтверждение');
+  assert.equal((await call('DELETE', '/me', { confirm: 'УДАЛИТЬ' }, token)).status, 200);
+  assert.equal((await call('GET', '/me', null, token)).status, 401, 'сессии завершены');
+  const t = (await call('GET', `/track/${o.code}`)).data.order;
+  assert.equal(t.status, 'cancelled', 'неоплаченный заказ отменён');
+  assert.ok(t.events.some((e) => e.note.includes('оплата возвращена')), 'оплата покупателя возвращена');
+
+  const admin = await login('77000000001', 'admin123');
+  const users = (await call('GET', '/admin/users', null, admin)).data.users;
+  assert.ok(!users.some((u) => u.phone === phone), 'телефона больше нет в базе');
+  assert.ok(users.some((u) => u.name === 'Удалённый пользователь' && !u.active));
+  r = await call('POST', '/auth/otp/request', { phone });
+  assert.equal(r.data.registered, false, 'номер можно зарегистрировать заново');
+
+  const courier = await login('77000000003', 'courier123');
+  assert.equal((await call('DELETE', '/me', { confirm: 'УДАЛИТЬ' }, courier)).status, 400);
+});

@@ -4,6 +4,7 @@
   "description": "Жеткіз 750 — доставка по Астане",
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning index.js",
+    "create-admin": "node --disable-warning=ExperimentalWarning create-admin.js",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
   },
   "engines": { "node": ">=22.13" },

@@ -152,7 +152,21 @@ VIEWS.common.profile = async () => {
         <div><label>Адрес забора по умолчанию</label><input name="pickup_address" value="${esc(u.pickup_address)}" required></div>` : ''}
       <div class="err"></div>
       <div class="row"><button class="btn">Сохранить</button><button type="button" class="btn ghost" data-act="logout">Выйти</button></div>
-    </form></div>`;
+    </form>
+    ${['seller', 'client'].includes(u.role) ? `<details style="margin-top:24px"><summary class="small muted">Удалить аккаунт</summary>
+      <div class="stack" style="margin-top:12px">
+        <p class="small" style="margin:0">Имя, телефон и адрес будут стёрты, войти в этот аккаунт больше не получится. История доставок сохранится без ваших личных данных — её мы обязаны хранить по закону.${u.role === 'seller' ? ' Неоплаченные заказы будут отменены.' : ''}</p>
+        <div><label for="delConfirm">Чтобы подтвердить, введите слово УДАЛИТЬ</label><input id="delConfirm" autocomplete="off"></div>
+        <div class="err" id="delErr"></div>
+        <div><button type="button" class="btn" style="background:var(--bad)" data-act="deleteAccount">Удалить аккаунт навсегда</button></div>
+      </div></details>` : ''}
+  </div>`;
+};
+actions.deleteAccount = async () => {
+  const err = document.getElementById('delErr'); err.textContent = '';
+  try { await api('DELETE', '/me', { confirm: document.getElementById('delConfirm').value.trim().toUpperCase() }); }
+  catch (e) { err.textContent = e.message === 'Подтвердите удаление' ? 'Введите слово УДАЛИТЬ' : e.message; return; }
+  store.token = null; S.user = null; authView('login'); toast('Аккаунт удалён');
 };
 forms.profile = async (f) => { S.user = (await api('PATCH', '/me', f)).user; toast('Сохранено'); renderTabs(); };
 
@@ -295,8 +309,13 @@ VIEWS.courier = {
       <a class="btn ghost sm" target="_blank" rel="noopener" href="https://2gis.kz/astana/search/${encodeURIComponent(o.address)}">Маршрут 2ГИС</a>`), 'Активных доставок нет');
   },
   done: async () => {
-    const { done } = await courierLoad();
-    return `<div class="card stat" style="margin-bottom:16px"><div class="v">${done.length}</div><div class="l">последние доставки</div></div>` + list(done, (o) => orderCard(o), 'Пока пусто');
+    const [{ done }, cash] = await Promise.all([courierLoad(), api('GET', '/courier/cash')]);
+    return `<div class="grid" style="margin-bottom:16px">
+      <div class="card stat"><div class="v">${done.length}</div><div class="l">последние доставки</div></div>
+      <div class="card stat"><div class="v">${money(cash.on_hand)}</div><div class="l">наличные на руках — сдайте администратору</div>
+        ${cash.items.length ? `<details class="small"><summary>${cash.items.length} заказ(ов)</summary>${cash.items.map((i) => `<div>${esc(i.code)} · ${esc(i.buyer_name)} · ${money(i.amount)}</div>`).join('')}</details>` : ''}
+        ${cash.handovers[0] ? `<div class="small muted">Последняя сдача: ${money(cash.handovers[0].amount)}, ${date(cash.handovers[0].created_at)}</div>` : ''}</div>
+    </div>` + list(done, (o) => orderCard(o), 'Пока пусто');
   },
   support: VIEWS.common.support,
 };
@@ -360,7 +379,7 @@ VIEWS.admin = {
       <div class="card stat"><div class="v">${active}</div><div class="l">в работе сейчас</div></div>
       <div class="card stat"><div class="v">${s.byStatus.new || 0}</div><div class="l">ждут оплаты продавца</div></div>
       <div class="card stat"><div class="v">${s.openTickets}</div><div class="l">открытых обращений</div></div>
-      <div class="card stat"><div class="v">${money(s.cash)}</div><div class="l">наличные у курьеров</div></div>
+      <div class="card stat"><div class="v">${money(s.cashOnHands)}</div><div class="l">наличные на руках у курьеров · <a href="#" data-act="tab" data-k="couriers">касса</a></div></div>
     </div>
     <div class="card" style="margin-top:16px"><h3>Выручка за 14 дней</h3>
       ${s.daily.length ? `<div class="bars" style="margin-bottom:24px">${s.daily.map((d) => `<div style="height:${(d.revenue / max) * 100}%" title="${d.day}: ${money(d.revenue)}"><span>${d.day.slice(8)}</span></div>`).join('')}</div>` : '<p class="muted">Пока нет оплат</p>'}
@@ -369,10 +388,16 @@ VIEWS.admin = {
   },
   orders: ordersView,
   couriers: async () => {
-    const { couriers } = await api('GET', '/admin/couriers');
-    return `<div class="card scroll"><table class="table"><tr><th>Курьер</th><th>Телефон</th><th>В работе</th><th>Доставлено</th><th>Статус</th></tr>
-      ${couriers.map((c) => `<tr><td>${esc(c.name)}</td><td>${phone(c.phone)}</td><td>${c.active_orders}</td><td>${c.delivered}</td><td>${c.active ? '<span class="paid">активен</span>' : '<span class="unpaid">заблокирован</span>'}</td></tr>`).join('')}
-    </table></div><p class="muted small">Добавить курьера — во вкладке «Пользователи».</p>`;
+    const [{ couriers }, cash] = await Promise.all([api('GET', '/admin/couriers'), api('GET', '/admin/cash')]);
+    const byId = Object.fromEntries(cash.couriers.map((c) => [c.id, c]));
+    return `<div class="card stat" style="margin-bottom:16px"><div class="v">${money(cash.total_on_hand)}</div><div class="l">наличные на руках у курьеров — ещё не сданы в кассу</div></div>
+      <div class="card scroll"><table class="table"><tr><th>Курьер</th><th>Телефон</th><th>В работе</th><th>Доставлено</th><th>Наличные на руках</th><th>Последняя сдача</th><th>Статус</th></tr>
+      ${couriers.map((c) => { const k = byId[c.id] || { on_hand: 0, items: [] }; return `<tr><td>${esc(c.name)}</td><td>${phone(c.phone)}</td><td>${c.active_orders}</td><td>${c.delivered}</td>
+        <td><b>${money(k.on_hand)}</b>${k.items.length ? `<details class="small"><summary>${k.items.length} заказ(ов)</summary>${k.items.map((i) => `<div>${esc(i.code)} · ${esc(i.buyer_name)} · ${money(i.amount)} · ${date(i.created_at)}</div>`).join('')}</details>` : ''}
+          ${k.on_hand ? `<div style="margin-top:6px"><button class="btn sun sm" data-act="handover" data-id="${c.id}" data-amount="${k.on_hand}" data-name="${esc(c.name)}">Принял ${money(k.on_hand)}</button></div>` : ''}</td>
+        <td class="small">${k.last_handover ? `${money(k.last_handover.amount)}<br><span class="muted">${date(k.last_handover.created_at)}, ${esc(k.last_handover.admin_name)}</span>` : '<span class="muted">—</span>'}</td>
+        <td>${c.active ? '<span class="paid">активен</span>' : '<span class="unpaid">заблокирован</span>'}</td></tr>`; }).join('')}
+    </table></div><p class="muted small">Курьер получает от покупателя ${money(S.cfg.price_buyer)} наличными, если тот не оплатил онлайн. Когда курьер сдаёт деньги, нажмите «Принял». Добавить курьера — во вкладке «Пользователи».</p>`;
   },
   users: async () => {
     const { users } = await api('GET', '/admin/users');
@@ -398,6 +423,11 @@ VIEWS.admin = {
       ${notifications.map((n) => `<tr><td>${date(n.created_at)}</td><td>${/^7\d{10}$/.test(n.phone) ? phone(n.phone) : esc(n.phone)}</td><td>${n.kind === 'push' ? 'push' : 'SMS'}</td><td>${esc(n.text)}</td><td>${st[n.status] || esc(n.status)}${n.error ? `<div class="small muted">${esc(n.error)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Пока пусто</td></tr>'}
       </table></div>`;
   },
+};
+actions.handover = async (d) => {
+  if (!confirm(`Подтвердите: вы получили ${money(Number(d.amount))} наличными от курьера ${d.name}?`)) return;
+  await api('POST', `/admin/cash/${d.id}/handover`, { amount: Number(d.amount) });
+  toast('Наличные приняты'); reload();
 };
 forms.addUser = async (f) => { await api('POST', '/admin/users', f); toast('Сотрудник добавлен'); reload(); };
 actions.toggleUser = async (d) => { await api('PATCH', `/admin/users/${d.id}`, { active: d.on === '1' }); reload(); };

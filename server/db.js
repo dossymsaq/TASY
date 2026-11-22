@@ -68,6 +68,17 @@ CREATE TABLE IF NOT EXISTS payments (
   status TEXT NOT NULL,          -- pending | paid | failed | refunded
   provider_ref TEXT,
   invoice TEXT UNIQUE,           -- номер счёта у платёжного провайдера
+  collected_by INTEGER REFERENCES users(id), -- наличные: какой курьер получил деньги
+  handover_id INTEGER REFERENCES cash_handovers(id), -- наличные: когда курьер сдал их в кассу
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Сдача наличных курьером в кассу
+CREATE TABLE IF NOT EXISTS cash_handovers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  courier_id INTEGER NOT NULL REFERENCES users(id),
+  amount INTEGER NOT NULL,
+  admin_id INTEGER NOT NULL REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -133,6 +144,13 @@ if (!cols('payments').includes('invoice')) {
   db.exec('ALTER TABLE payments ADD COLUMN invoice TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice)');
 }
+if (!cols('payments').includes('collected_by')) {
+  db.exec('ALTER TABLE payments ADD COLUMN collected_by INTEGER REFERENCES users(id)');
+  db.exec('ALTER TABLE payments ADD COLUMN handover_id INTEGER REFERENCES cash_handovers(id)');
+  // Наличные, полученные до этой версии, считаем у курьера заказа
+  db.exec("UPDATE payments SET collected_by = (SELECT courier_id FROM orders WHERE orders.id = payments.order_id) WHERE method = 'cash'");
+}
+db.exec('CREATE INDEX IF NOT EXISTS idx_payments_cash ON payments(collected_by, handover_id)');
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -151,8 +169,13 @@ function tx(fn) {
   catch (e) { db.exec('ROLLBACK'); throw e; }
 }
 
-// Демо-аккаунты при первом запуске
+// Демо-аккаунты при первом запуске — только для разработки и демо.
+// На рабочем сервере (NODE_ENV=production) их нет: первого админа создаёт команда
+//   npm run create-admin
+// SEED_DEMO=1 включает демо-аккаунты принудительно, SEED_DEMO=0 — отключает.
 function seed() {
+  const want = process.env.SEED_DEMO ? process.env.SEED_DEMO === '1' : process.env.NODE_ENV !== 'production';
+  if (!want) return;
   const { n } = db.prepare('SELECT COUNT(*) AS n FROM users').get();
   if (n > 0) return;
   const ins = db.prepare(`INSERT INTO users (role,name,phone,shop_name,pickup_address,password_hash) VALUES (?,?,?,?,?,?)`);
@@ -168,5 +191,11 @@ function seed() {
   for (const d of demo) console.log(`  ${d[0].padEnd(8)} ${d[2]} / ${d[5]}`);
 }
 seed();
+
+// Предупреждение, если на рабочем сервере остался демо-админ с известным паролем
+if (process.env.NODE_ENV === 'production') {
+  const a = db.prepare("SELECT password_hash FROM users WHERE phone = '77000000001' AND active = 1").get();
+  if (a && checkPassword('admin123', a.password_hash)) console.warn('ВНИМАНИЕ: активен демо-админ 77000000001 с паролем admin123 — заблокируйте его или смените пароль');
+}
 
 module.exports = { db, hashPassword, checkPassword, tx };

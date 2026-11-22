@@ -142,7 +142,7 @@ function payCash(order, payer, actorId) {
   checkPayable(order, payer);
   const amount = priceOf(payer);
   tx(() => {
-    db.prepare("INSERT INTO payments (order_id,payer,amount,method,status) VALUES (?,?,?,'cash','paid')").run(order.id, payer, amount);
+    db.prepare("INSERT INTO payments (order_id,payer,amount,method,status,collected_by) VALUES (?,?,?,'cash','paid',?)").run(order.id, payer, amount, actorId);
     applyPaid(order, payer, amount, 'cash', actorId);
   });
 }
@@ -346,6 +346,31 @@ api.patch('/me', auth(), (req, res) => {
   res.json({ user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(u.id)) });
 });
 
+// Удаление аккаунта по просьбе пользователя (право из политики конфиденциальности).
+// Запись не удаляется физически — на неё ссылаются заказы, которые закон требует хранить, —
+// но имя, телефон и адрес стираются, вход становится невозможен, номер освобождается.
+api.delete('/me', auth(), async (req, res) => {
+  const u = req.user;
+  if (!['seller', 'client'].includes(u.role)) fail(400, 'Аккаунт сотрудника удаляет администратор');
+  if (String(req.body?.confirm || '') !== 'УДАЛИТЬ') fail(400, 'Подтвердите удаление');
+  if (u.role === 'seller') {
+    const { n } = db.prepare("SELECT COUNT(*) n FROM orders WHERE seller_id = ? AND status IN ('ready','assigned','picked_up')").get(u.id);
+    if (n) fail(400, `У вас есть оплаченные заказы (${n}). Отмените их или дождитесь доставки.`);
+    // Неоплаченные заказы отменяем (с возвратом, если покупатель уже успел заплатить)
+    for (const o of db.prepare("SELECT * FROM orders WHERE seller_id = ? AND status = 'new'").all(u.id)) await cancelOrder(o, 'Отменён: продавец удалил аккаунт', u.id);
+  }
+  tx(() => {
+    db.prepare(`UPDATE users SET name = 'Удалённый пользователь', phone = ?, pickup_address = NULL, active = 0,
+      password_hash = ? WHERE id = ?`).run(`deleted-${u.id}`, hashPassword(crypto.randomBytes(24).toString('hex')), u.id);
+    db.prepare("UPDATE tickets SET contact_name = 'Удалённый пользователь', contact_phone = NULL WHERE user_id = ?").run(u.id);
+    db.prepare("UPDATE ticket_messages SET author_name = 'Удалённый пользователь' WHERE author_id = ?").run(u.id);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+    db.prepare('DELETE FROM push_tokens WHERE user_id = ?').run(u.id);
+    db.prepare('DELETE FROM otp_codes WHERE phone = ?').run(u.phone);
+  });
+  res.json({ ok: true });
+});
+
 // ---------- публичное отслеживание (ссылка для покупателя) ----------
 function byCode(code) {
   const o = db.prepare('SELECT * FROM orders WHERE code = ?').get(String(code || '').toUpperCase());
@@ -438,6 +463,43 @@ api.get('/courier/orders', auth('courier'), (req, res) => {
   const sellerPhone = (o) => ({ ...fullOrder(o), seller_phone: db.prepare('SELECT phone FROM users WHERE id=?').get(o.seller_id).phone });
   res.json({ available: available.map((o) => fullOrder(o)), mine: mine.map(sellerPhone), done: done.map((o) => fullOrder(o)) });
 });
+// ---------- наличные у курьеров ----------
+// Наличные, которые курьер получил и ещё не сдал в кассу
+const cashOnHand = (courierId) => db.prepare(`SELECT p.id, p.amount, p.created_at, o.code, o.buyer_name FROM payments p JOIN orders o ON o.id = p.order_id
+  WHERE p.method = 'cash' AND p.status = 'paid' AND p.collected_by = ? AND p.handover_id IS NULL ORDER BY p.id`).all(courierId);
+const handovers = (courierId, limit = 20) => db.prepare(`SELECT h.amount, h.created_at, a.name admin_name FROM cash_handovers h JOIN users a ON a.id = h.admin_id
+  WHERE h.courier_id = ? ORDER BY h.id DESC LIMIT ?`).all(courierId, limit);
+const sum = (rows) => rows.reduce((t, r) => t + r.amount, 0);
+
+api.get('/courier/cash', auth('courier'), (req, res) => {
+  const items = cashOnHand(req.user.id);
+  res.json({ on_hand: sum(items), items, handovers: handovers(req.user.id, 10) });
+});
+api.get('/admin/cash', auth('admin'), (req, res) => {
+  const couriers = db.prepare("SELECT id, name, phone, active FROM users WHERE role = 'courier' ORDER BY name").all().map((c) => {
+    const items = cashOnHand(c.id);
+    return { ...c, on_hand: sum(items), items, last_handover: handovers(c.id, 1)[0] || null };
+  });
+  res.json({ couriers, total_on_hand: sum(couriers.map((c) => ({ amount: c.on_hand }))) });
+});
+// Админ принял деньги у курьера. amount — сумма, которую админ видел на экране:
+// если за это время курьер получил ещё наличные, сумма не совпадёт и придётся обновить страницу.
+api.post('/admin/cash/:courierId/handover', auth('admin'), (req, res) => {
+  const courier = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'courier'").get(req.params.courierId);
+  if (!courier) fail(404, 'Курьер не найден');
+  const result = tx(() => {
+    const items = cashOnHand(courier.id);
+    const total = sum(items);
+    if (!total) fail(400, 'У курьера нет несданных наличных');
+    if (Number(req.body?.amount) !== total) fail(409, `Сумма изменилась: сейчас у курьера ${total} ₸. Обновите страницу.`);
+    const h = db.prepare('INSERT INTO cash_handovers (courier_id, amount, admin_id) VALUES (?,?,?)').run(courier.id, total, req.user.id);
+    const mark = db.prepare('UPDATE payments SET handover_id = ? WHERE id = ?');
+    for (const it of items) mark.run(h.lastInsertRowid, it.id);
+    return { amount: total, orders: items.length };
+  });
+  res.json({ ok: true, ...result });
+});
+
 function courierOrder(req, statuses) {
   const o = getOrder(req.params.id);
   if (o.courier_id !== req.user.id) fail(403, 'Это не ваш заказ');
@@ -478,9 +540,10 @@ api.get('/admin/stats', auth('admin', 'support'), (req, res) => {
   const users = Object.fromEntries(db.prepare('SELECT role, COUNT(*) n FROM users GROUP BY role').all().map((r) => [r.role, r.n]));
   const openTickets = q("SELECT COUNT(*) v FROM tickets WHERE status != 'closed'").v;
   const cash = q("SELECT COALESCE(SUM(amount),0) v FROM payments WHERE status='paid' AND method='cash'").v;
+  const cashOnHands = q("SELECT COALESCE(SUM(amount),0) v FROM payments WHERE status='paid' AND method='cash' AND handover_id IS NULL").v;
   const daily = db.prepare(`SELECT date(created_at) day, SUM(amount) revenue, COUNT(DISTINCT order_id) orders FROM payments
     WHERE status='paid' AND created_at >= date('now','-13 days') GROUP BY day ORDER BY day`).all();
-  res.json({ byStatus, revenue, revenueToday, ordersToday, deliveredToday, users, openTickets, cash, daily });
+  res.json({ byStatus, revenue, revenueToday, ordersToday, deliveredToday, users, openTickets, cash, cashOnHands, daily });
 });
 api.get('/admin/orders', auth('admin', 'support'), (req, res) => {
   const where = []; const args = [];
@@ -518,7 +581,8 @@ api.get('/admin/notifications', auth('admin'), (req, res) => {
 api.get('/admin/couriers', auth('admin'), (req, res) => {
   const rows = db.prepare(`SELECT u.id, u.name, u.phone, u.active,
       (SELECT COUNT(*) FROM orders o WHERE o.courier_id=u.id AND o.status IN ('assigned','picked_up')) active_orders,
-      (SELECT COUNT(*) FROM orders o WHERE o.courier_id=u.id AND o.status='delivered') delivered
+      (SELECT COUNT(*) FROM orders o WHERE o.courier_id=u.id AND o.status='delivered') delivered,
+      (SELECT COALESCE(SUM(p.amount),0) FROM payments p WHERE p.method='cash' AND p.status='paid' AND p.collected_by=u.id AND p.handover_id IS NULL) cash_on_hand
     FROM users u WHERE role='courier' ORDER BY u.name`).all();
   res.json({ couriers: rows });
 });
