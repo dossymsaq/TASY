@@ -8,6 +8,11 @@
   <meta name="theme-color" content="#0e1a24">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Жеткіз 750">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Inter:wght@400;500;600;700&display=swap">
@@ -36,7 +41,7 @@
     .l-top .spacer { flex: 1; }
     .l-top .btn.ghost { color: var(--on-ink); border-color: rgba(255,255,255,.22); }
     @media (max-width: 860px) { .l-nav { display: none; } }
-    @media (max-width: 420px) { .l-top .btn.sun { display: none; } }
+    @media (max-width: 460px) { .l-top .l-install { display: none; } }
 
     /* Первый экран */
     .l-hero { background: radial-gradient(1200px 500px at 80% -10%, rgba(25,184,212,.18), transparent 60%), var(--ink); color: var(--on-ink); overflow: hidden; }
@@ -130,6 +135,18 @@
     .l-track-box input::placeholder { color: var(--on-ink-muted); text-transform: none; letter-spacing: 0; }
     .l-track-box .btn { min-height: 54px; padding-inline: 26px; }
 
+    .l-app { display: grid; grid-template-columns: .9fr 1.1fr; gap: 40px; align-items: center; }
+    @media (max-width: 900px) { .l-app { grid-template-columns: 1fr; } }
+    .l-app h2 { font-size: clamp(26px, 3.6vw, 40px); margin: 0 0 14px; }
+    .l-app p { color: var(--muted); margin: 0 0 24px; max-width: 30em; }
+    .l-app .btn { min-height: 54px; padding: 14px 26px; font-size: 16px; }
+    .l-roles { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 520px) { .l-roles { grid-template-columns: 1fr; } }
+    .l-roles a { display: grid; gap: 6px; padding: 22px; border-radius: 18px; background: var(--bg); border: 1px solid var(--line); color: var(--text); text-decoration: none; transition: transform .25s, border-color .25s; }
+    .l-roles a:hover, .l-roles a:focus-visible { transform: translateY(-3px); border-color: var(--sun); }
+    .l-roles b { font-family: var(--display); font-size: 18px; }
+    .l-roles span { color: var(--muted); font-size: 14px; }
+    .l-roles em { font-style: normal; font-weight: 600; color: var(--brand-d); font-size: 14px; }
     .l-join { text-align: center; padding-block: 90px; }
     .l-join h2 { font-size: clamp(28px, 4.4vw, 48px); margin: 0 auto 14px; max-width: 18em; }
     .l-join p { color: var(--muted); margin: 0 auto 28px; max-width: 34em; }
@@ -172,8 +189,8 @@
     <a href="#track">Отследить</a>
   </nav>
   <span class="spacer"></span>
-  <a class="btn ghost sm" href="/app">Войти</a>
-  <a class="btn sun sm" href="/app#register-seller">Подключиться</a>
+  <a class="btn ghost sm l-install" href="#app" data-install>Установить</a>
+  <a class="btn sun sm" href="/app">Войти</a>
 </div></header>
 
 <section class="l-hero">
@@ -292,6 +309,21 @@
     </div>
   </div></section>
 
+  <section class="l-section" id="app"><div class="wrap l-app">
+    <div class="reveal from-left">
+      <span class="l-kicker">Приложение</span>
+      <h2>Жеткіз 750 на экране вашего телефона</h2>
+      <p>Одно приложение для всех: владелец, продавцы, клиенты и курьеры. Установка за 10 секунд — без App Store и Google Play, значок появится на экране «Домой».</p>
+      <a class="btn sun" href="#app" data-install>Установить приложение</a>
+    </div>
+    <div class="l-roles reveal from-right">
+      <a href="/app#owner"><b>Владелец</b><span>Выручка, заказы, курьеры, заявки продавцов</span><em>Войти →</em></a>
+      <a href="/app#seller"><b>Продавец</b><span>Оформление доставок по договору</span><em>Войти →</em></a>
+      <a href="/app#client"><b>Клиент</b><span>Ваши посылки и их статус</span><em>Войти →</em></a>
+      <a href="/app#courier"><b>Курьер</b><span>Заказы, маршрут, вручение</span><em>Войти →</em></a>
+    </div>
+  </div></section>
+
   <section class="l-join"><div class="wrap">
     <h2 class="reveal from-below">Продаёте в Instagram или WhatsApp? Подключитесь за две минуты</h2>
     <p class="reveal from-below">Регистрация по номеру телефона. Первый заказ — сразу после входа.</p>
@@ -334,6 +366,6 @@
   }, 2200);
 })();
 </script>
-<script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
+<script src="/install.js"></script>
 </body>
 </html>

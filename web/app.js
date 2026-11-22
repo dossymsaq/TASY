@@ -61,42 +61,54 @@ document.addEventListener('submit', async (e) => {
 });
 
 // ---------- auth ----------
-// Вход и регистрация — по SMS-коду. Сотрудники могут войти по паролю.
-function authView(mode = location.hash === '#register-seller' ? 'seller' : 'login') {
+// Четыре входа: владелец и курьер — по паролю; продавец и клиент — по SMS-коду.
+// Продавец работает по договору: новый продавец подаёт заявку, владелец её одобряет.
+// Прямые ссылки: /app#owner, /app#seller, /app#register-seller, /app#client, /app#courier
+const AUTH_HASH = { '#owner': 'owner', '#seller': 'seller', '#register-seller': 'seller-apply', '#client': 'client', '#courier': 'courier' };
+const ROLE_CARDS = [
+  ['owner', 'Владелец', 'Управление сервисом, выручка, курьеры и продавцы', 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'],
+  ['seller', 'Продавец', 'Для магазинов, которые работают с нами по договору', 'M4 7h16l-1 13H5zM8 7a4 4 0 0 1 8 0'],
+  ['client', 'Клиент', 'Посылки, отправленные на ваш номер, и их статус', 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c0-4 4-6 8-6s8 2 8 6'],
+  ['courier', 'Курьер', 'Заказы, маршруты, вручение и наличные', 'M3 7h11v9H3zM14 10h4l3 3v3h-7M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM17 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z'],
+];
+const demoHint = (txt) => (S.cfg?.sms_mode === 'mock' ? `<p class="small muted" style="margin:0">Демо: ${txt}</p>` : '');
+function authView(mode = AUTH_HASH[location.hash] || 'choose') {
   $tabs.innerHTML = '';
   document.getElementById('who').textContent = '';
-  const tab = (m, t) => `<button class="${mode === m ? 'on' : ''}" data-act="authMode" data-m="${m}">${t}</button>`;
-  const phoneField = '<div><label>Телефон</label><input name="phone" type="tel" placeholder="+7 7XX XXX XX XX" autocomplete="tel" required></div>';
-  const body = mode === 'password' ? `
-      <form data-form="login" class="stack">
-        ${phoneField}
-        <div><label>Пароль</label><input name="password" type="password" autocomplete="current-password" required></div>
-        <div class="err"></div><button class="btn block">Войти</button>
-        <p class="small"><a href="#" data-act="authMode" data-m="login">← Войти по SMS-коду</a></p>
-        <p class="small muted">Демо: продавец 77000000004 / seller123, покупатель 77000000005 / client123, курьер 77000000003 / courier123, админ 77000000001 / admin123, поддержка 77000000002 / support123</p>
-      </form>` : `
-      <form data-form="otp" class="stack">
-        <input type="hidden" name="role" value="${mode === 'seller' ? 'seller' : 'client'}">
-        ${mode === 'seller' ? '<p class="small muted" style="margin:0">Доставка по Астане — 750 ₸, посылки до 2 кг.</p>' : ''}
-        ${mode === 'client' ? '<p class="small muted" style="margin:0">Посылки, отправленные на ваш номер, появятся в кабинете автоматически.</p>' : ''}
-        <div data-profile ${mode === 'login' ? 'hidden' : ''}><label>Ваше имя</label><input name="name" ${mode === 'login' ? '' : 'required'}></div>
-        ${phoneField}
-        ${mode === 'seller' ? `
-          <div><label>Название магазина</label><input name="shop_name" required></div>
-          <div><label>Адрес, откуда забирать товар</label><input name="pickup_address" placeholder="Улица, дом, офис" required></div>` : ''}
-        <div data-code hidden><label>Код из SMS</label><input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{4,6}"></div>
-        <div class="err"></div>
-        <button class="btn block">Получить код по SMS</button>
-        <p class="small muted" style="margin:0">Продолжая, вы принимаете условия <a href="/offer" target="_blank">публичной оферты</a> и <a href="/privacy" target="_blank">политики конфиденциальности</a>.</p>
-        <p class="small" data-resend hidden><a href="#" data-act="otpResend">Отправить код ещё раз</a></p>
-        ${mode === 'login' ? '<p class="small"><a href="#" data-act="authMode" data-m="password">Войти по паролю (для сотрудников)</a></p>' : ''}
-      </form>`;
-  $view.innerHTML = `<div class="card" style="max-width:480px;margin:24px auto">
-    <nav class="tabs" style="padding-top:0">${tab('login', 'Вход')}${tab('seller', 'Я продавец')}${tab('client', 'Я покупатель')}</nav>
-    ${body}
-  </div>`;
+  const back = '<p class="small" style="margin:0"><a href="#" data-act="authMode" data-m="choose">← Выбрать другой вход</a></p>';
+  const phoneField = '<div><label for="aPhone">Телефон</label><input id="aPhone" name="phone" type="tel" placeholder="+7 7XX XXX XX XX" autocomplete="tel" required></div>';
+  const codeField = '<div data-code hidden><label for="aCode">Код из SMS</label><input id="aCode" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="\\d{4,6}"></div>';
+  const legal = '<p class="small muted" style="margin:0">Продолжая, вы принимаете условия <a href="/offer" target="_blank">публичной оферты</a> и <a href="/privacy" target="_blank">политики конфиденциальности</a>.</p>';
+  const otpTail = `<div class="err"></div><button class="btn block">Получить код по SMS</button>${legal}<p class="small" data-resend hidden><a href="#" data-act="otpResend">Отправить код ещё раз</a></p>`;
+  const passwordForm = (title, note, hint) => `<h2 style="margin:0">${title}</h2><p class="small muted" style="margin:0">${note}</p>
+    <form data-form="login" class="stack">${phoneField}
+      <div><label for="aPass">Пароль</label><input id="aPass" name="password" type="password" autocomplete="current-password" required></div>
+      <div class="err"></div><button class="btn block">Войти</button>${demoHint(hint)}</form>${back}`;
+  const views = {
+    choose: `<h2 style="margin:0">Вход в Жеткіз 750</h2><p class="muted" style="margin:0">Выберите, кто вы:</p>
+      <div class="role-grid">${ROLE_CARDS.map(([m, t, d, icon]) => `<a href="#${m}" class="role-card" data-act="authMode" data-m="${m}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icon}"/></svg><b>${t}</b><span>${d}</span></a>`).join('')}</div>`,
+    owner: passwordForm('Вход для владельца', 'Сотрудники поддержки входят здесь же.', 'владелец 77000000001 / admin123, поддержка 77000000002 / support123'),
+    courier: passwordForm('Вход для курьера', 'Логин и пароль выдаёт владелец сервиса.', 'курьер 77000000003 / courier123'),
+    seller: `<h2 style="margin:0">Вход для продавца</h2><p class="small muted" style="margin:0">Для магазинов, работающих с нами по договору.</p>
+      <form data-form="otp" data-kind="seller-login" class="stack"><input type="hidden" name="role" value="seller">${phoneField}${codeField}${otpTail}</form>
+      <p class="small" style="margin:0">Ещё не работаете с нами? <a href="#register-seller" data-act="authMode" data-m="seller-apply">Подать заявку на подключение</a></p>
+      ${demoHint('продавец 77000000004 — код подставится сам')}${back}`,
+    'seller-apply': `<h2 style="margin:0">Заявка на подключение</h2><p class="small muted" style="margin:0">Доставка по Астане — 750 ₸, посылки до 2 кг. После заявки мы свяжемся с вами и заключим договор — затем откроем оформление доставок.</p>
+      <form data-form="otp" data-kind="seller-apply" class="stack"><input type="hidden" name="role" value="seller">
+        <div><label for="aName">Ваше имя</label><input id="aName" name="name" required></div>${phoneField}
+        <div><label for="aShop">Название магазина</label><input id="aShop" name="shop_name" required></div>
+        <div><label for="aAddr">Адрес, откуда забирать товар</label><input id="aAddr" name="pickup_address" placeholder="Улица, дом, офис" required></div>
+        ${codeField}${otpTail}</form>
+      <p class="small" style="margin:0">Уже подключены? <a href="#seller" data-act="authMode" data-m="seller">Войти</a></p>${back}`,
+    client: `<h2 style="margin:0">Вход для клиента</h2><p class="small muted" style="margin:0">Посылки, отправленные на ваш номер, появятся в кабинете автоматически.</p>
+      <form data-form="otp" data-kind="client" class="stack"><input type="hidden" name="role" value="client">
+        <div data-profile hidden><label for="aName">Ваше имя</label><input id="aName" name="name"></div>${phoneField}${codeField}${otpTail}</form>
+      ${demoHint('клиент 77000000005 — код подставится сам')}${back}`,
+  };
+  $view.innerHTML = `${JInstall.banner()}<div class="card stack" style="max-width:520px;margin:24px auto">${views[mode] || views.choose}</div>`;
 }
-actions.authMode = (d) => authView(d.m);
+actions.authMode = (d) => { history.replaceState(null, '', d.m === 'choose' ? location.pathname + location.search : (d.m === 'seller-apply' ? '#register-seller' : '#' + d.m)); authView(d.m); };
 const forms = {};
 forms.login = async (f) => { const r = await api('POST', '/auth/login', f); store.token = r.token; start(); };
 
@@ -105,23 +117,34 @@ async function otpSend(form) {
   const codeBox = form.querySelector('[data-code]');
   codeBox.hidden = false; codeBox.querySelector('input').required = true;
   form.querySelector('[data-resend]').hidden = false;
-  form.querySelector('button.btn').textContent = 'Войти';
+  form.querySelector('button.btn').textContent = form.dataset.kind === 'seller-apply' ? 'Отправить заявку' : 'Войти';
   form.phone.readOnly = true;
   if (r.dev_code) { form.code.value = r.dev_code; toast(`Тестовый режим: код ${r.dev_code}`); } else form.code.focus();
 }
 forms.otp = async (f, form) => {
   if (form.querySelector('[data-code]').hidden) return otpSend(form);
-  const r = await api('POST', '/auth/otp/verify', f);
-  if (r.need_profile) { // новый номер на вкладке «Вход» — спросим имя
+  const kind = form.dataset.kind;
+  const body = kind === 'seller-login' ? { phone: f.phone, code: f.code } : f;
+  const r = await api('POST', '/auth/otp/verify', body);
+  if (r.need_profile) {
+    if (kind === 'seller-login') { // номера нет — предложим заявку, код уже проверен
+      authView('seller-apply'); history.replaceState(null, '', '#register-seller');
+      const nf = document.querySelector('form[data-kind="seller-apply"]');
+      nf.phone.value = f.phone; nf.phone.readOnly = true; nf.code.value = f.code;
+      nf.querySelector('[data-code]').hidden = false; nf.querySelector('[data-resend]').hidden = false;
+      nf.querySelector('button.btn').textContent = 'Отправить заявку';
+      nf.querySelector('.err').textContent = 'Этот номер ещё не подключён. Заполните заявку — код уже подтверждён.';
+      return;
+    }
     const box = form.querySelector('[data-profile]');
     box.hidden = false; box.querySelector('input').required = true; box.querySelector('input').focus();
-    form.querySelector('.err').textContent = 'Номер новый — укажите имя, чтобы создать кабинет покупателя.';
+    form.querySelector('.err').textContent = 'Номер новый — укажите имя, чтобы создать кабинет.';
     return;
   }
   store.token = r.token; history.replaceState(null, '', '/app'); start();
 };
 actions.otpResend = async (d, el) => { await otpSend(el.closest('form')); toast('Код отправлен'); };
-actions.logout = async () => { try { await api('POST', '/auth/logout'); } catch {} store.token = null; S.user = null; authView('login'); };
+actions.logout = async () => { try { await api('POST', '/auth/logout'); } catch {} store.token = null; S.user = null; authView('choose'); };
 
 // ---------- layout ----------
 function renderTabs() {
@@ -134,7 +157,7 @@ async function go(tab) {
   const view = VIEWS[S.user.role][tab] || VIEWS.common[tab];
   $view.innerHTML = '<p class="muted">Загрузка…</p>';
   try { $view.innerHTML = await view(); }
-  catch (e) { if (e.status === 401) { store.token = null; return authView('login'); } $view.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
+  catch (e) { if (e.status === 401) { store.token = null; return authView(); } $view.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
 }
 const reload = () => go(S.tab);
 
@@ -166,7 +189,7 @@ actions.deleteAccount = async () => {
   const err = document.getElementById('delErr'); err.textContent = '';
   try { await api('DELETE', '/me', { confirm: document.getElementById('delConfirm').value.trim().toUpperCase() }); }
   catch (e) { err.textContent = e.message === 'Подтвердите удаление' ? 'Введите слово УДАЛИТЬ' : e.message; return; }
-  store.token = null; S.user = null; authView('login'); toast('Аккаунт удалён');
+  store.token = null; S.user = null; authView('choose'); toast('Аккаунт удалён');
 };
 forms.profile = async (f) => { S.user = (await api('PATCH', '/me', f)).user; toast('Сохранено'); renderTabs(); };
 
@@ -211,9 +234,13 @@ forms.reply = async (f, form) => { await api('POST', `/tickets/${form.dataset.id
 actions.closeTicket = async (d) => { await api('POST', `/tickets/${d.id}/close`); $dlg.close(); reload(); };
 
 // ---------- продавец ----------
+const pendingNote = () => `<div class="card stack" style="max-width:760px;border-color:var(--sun)"><h2 style="margin:0">Заявка на рассмотрении</h2>
+  <p style="margin:0">Спасибо, ${esc(S.user.name)}! Мы получили заявку магазина «${esc(S.user.shop_name || '')}». Менеджер свяжется с вами по номеру ${phone(S.user.phone)}, чтобы заключить договор.</p>
+  <p class="muted small" style="margin:0">После подписания договора здесь откроется оформление доставок — по Астане за ${money(S.cfg.price_seller)}.</p></div>`;
 VIEWS.seller = {
   new: async () => {
     const c = S.cfg;
+    if (!S.user.approved) return pendingNote();
     return `<div class="card" style="max-width:760px">
       <h2>Новая доставка</h2>
       <p class="muted small">Доставка — <b>${money(c.price_seller)}</b>. Вес — до ${c.max_weight_kg} кг, в черте города ${c.city}.</p>
@@ -378,6 +405,7 @@ VIEWS.admin = {
       <div class="card stat"><div class="v">${active}</div><div class="l">в работе сейчас</div></div>
       <div class="card stat"><div class="v">${s.byStatus.new || 0}</div><div class="l">ждут оплаты продавца</div></div>
       <div class="card stat"><div class="v">${s.openTickets}</div><div class="l">открытых обращений</div></div>
+      ${s.pendingSellers ? `<div class="card stat" style="border-color:var(--sun)"><div class="v">${s.pendingSellers}</div><div class="l">заявок продавцов · <a href="#" data-act="tab" data-k="users">рассмотреть</a></div></div>` : ''}
       <div class="card stat"><div class="v">${money(s.cashOnHands)}</div><div class="l">наличные на руках у курьеров · <a href="#" data-act="tab" data-k="couriers">касса</a></div></div>
     </div>
     <div class="card" style="margin-top:16px"><h3>Выручка за 14 дней</h3>
@@ -400,16 +428,30 @@ VIEWS.admin = {
   },
   users: async () => {
     const { users } = await api('GET', '/admin/users');
-    return `<div class="card" style="margin-bottom:16px"><h3>Добавить сотрудника</h3>
+    const pending = users.filter((u) => u.role === 'seller' && !u.approved && u.active);
+    const base = location.origin + location.pathname;
+    const links = [['Владелец', '#owner'], ['Продавец', '#seller'], ['Заявка продавца', '#register-seller'], ['Клиент', '#client'], ['Курьер', '#courier']];
+    return `${pending.length ? `<div class="card" style="margin-bottom:16px;border-color:var(--sun)"><h3>Заявки продавцов · ${pending.length}</h3>
+      <p class="small muted">Одобрите заявку после подписания договора — продавец сразу сможет оформлять доставки.</p>
+      <div class="scroll"><table class="table"><tr><th>Магазин</th><th>Имя</th><th>Телефон</th><th>Адрес забора</th><th>Заявка</th><th></th></tr>
+      ${pending.map((u) => `<tr><td><b>${esc(u.shop_name || '')}</b></td><td>${esc(u.name)}</td><td>${phone(u.phone)}</td><td>${esc(u.pickup_address || '')}</td><td>${date(u.created_at)}</td>
+        <td><button class="btn sun sm" data-act="approveSeller" data-id="${u.id}">Одобрить</button></td></tr>`).join('')}</table></div></div>` : ''}
+      <div class="card" style="margin-bottom:16px"><h3>Ссылки на вход и установку приложения</h3>
+        <p class="small muted">Отправьте ссылку человеку — откроется его вход и кнопка «Установить приложение» на экран «Домой».</p>
+        <div class="stack">${links.map(([t, h]) => `<div class="row between" style="flex-wrap:wrap"><span><b>${t}</b> · <span class="small muted">${esc(base + h)}</span></span>
+          <button class="btn ghost sm" data-act="copyLink" data-link="${esc(base + h)}">Копировать</button></div>`).join('')}</div></div>
+      <div class="card" style="margin-bottom:16px"><h3>Добавить пользователя</h3>
       <form data-form="addUser" class="fields">
-        <div><label>Роль</label><select name="role"><option value="courier">Курьер</option><option value="support">Поддержка</option><option value="admin">Администратор</option></select></div>
+        <div><label>Роль</label><select name="role"><option value="courier">Курьер</option><option value="seller">Продавец (по договору)</option><option value="support">Поддержка</option><option value="admin">Владелец / администратор</option></select></div>
         <div><label>Имя</label><input name="name" required></div>
         <div><label>Телефон</label><input name="phone" type="tel" required></div>
         <div><label>Пароль</label><input name="password" minlength="6" required></div>
+        <div><label>Магазин (для продавца)</label><input name="shop_name"></div>
+        <div><label>Адрес забора (для продавца)</label><input name="pickup_address"></div>
         <div class="full err"></div><div><button class="btn">Добавить</button></div>
       </form></div>
       <div class="card scroll"><table class="table"><tr><th>Имя</th><th>Роль</th><th>Телефон</th><th>Магазин</th><th>Создан</th><th></th></tr>
-      ${users.map((u) => `<tr><td>${esc(u.name)}</td><td>${ROLE_NAMES[u.role]}</td><td>${phone(u.phone)}</td><td>${esc(u.shop_name || '')}</td><td>${date(u.created_at)}</td>
+      ${users.map((u) => `<tr><td>${esc(u.name)}</td><td>${ROLE_NAMES[u.role]}${u.role === 'seller' && !u.approved ? ' <span class="badge new">заявка</span>' : ''}</td><td>${phone(u.phone)}</td><td>${esc(u.shop_name || '')}</td><td>${date(u.created_at)}</td>
         <td>${u.id === S.user.id ? '' : `<button class="btn ${u.active ? 'ghost' : ''} sm" data-act="toggleUser" data-id="${u.id}" data-on="${u.active ? 0 : 1}">${u.active ? 'Заблокировать' : 'Разблокировать'}</button>`}</td></tr>`).join('')}
       </table></div>`;
   },
@@ -427,6 +469,11 @@ actions.handover = async (d) => {
   if (!confirm(`Подтвердите: вы получили ${money(Number(d.amount))} наличными от курьера ${d.name}?`)) return;
   await api('POST', `/admin/cash/${d.id}/handover`, { amount: Number(d.amount) });
   toast('Наличные приняты'); reload();
+};
+actions.approveSeller = async (d) => { await api('POST', `/admin/users/${d.id}/approve`); toast('Продавец подключён'); reload(); };
+actions.copyLink = async (d) => {
+  try { await navigator.clipboard.writeText(d.link); toast('Ссылка скопирована'); }
+  catch { prompt('Скопируйте ссылку', d.link); }
 };
 forms.addUser = async (f) => { await api('POST', '/admin/users', f); toast('Сотрудник добавлен'); reload(); };
 actions.toggleUser = async (d) => { await api('PATCH', `/admin/users/${d.id}`, { active: d.on === '1' }); reload(); };

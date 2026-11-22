@@ -122,11 +122,28 @@ export function Users() {
     try { await api('POST', '/admin/users', f); setF({ ...f, name: '', phone: '', password: '' }); load(); } catch (e) { setErr(e.message); }
   };
   const toggle = (u) => async () => { try { await api('PATCH', `/admin/users/${u.id}`, { active: !u.active }); load(); } catch (e) { alertError(e); } };
+  const approve = (u) => async () => { try { await api('POST', `/admin/users/${u.id}/approve`); load(); } catch (e) { alertError(e); } };
+  const pending = data ? data.users.filter((u) => u.role === 'seller' && !u.approved && u.active) : [];
   return (
     <Scroll refreshing={refreshing} onRefresh={load} error={error}>
+      {pending.length ? <Card style={{ gap: 10, borderColor: '#fec50c' }}>
+        <H>Заявки продавцов · {pending.length}</H>
+        <T muted size={13}>Одобрите после подписания договора — продавец сразу сможет оформлять доставки.</T>
+        {pending.map((u) => (
+          <View key={u.id} style={{ gap: 4, paddingVertical: 6 }}>
+            <T bold>{u.shop_name} · {u.name}</T>
+            <T muted size={13}>{phone(u.phone)} · {u.pickup_address}</T>
+            <Button small kind="sun" title="Одобрить" onPress={approve(u)} style={{ alignSelf: 'flex-start' }} />
+          </View>
+        ))}
+      </Card> : null}
       <Card style={{ gap: 10 }}>
-        <H>Добавить сотрудника</H>
-        <Chips value={f.role} onChange={(v) => setF({ ...f, role: v })} options={[['courier', 'Курьер'], ['support', 'Поддержка'], ['admin', 'Админ']]} />
+        <H>Добавить пользователя</H>
+        <Chips value={f.role} onChange={(v) => setF({ ...f, role: v })} options={[['courier', 'Курьер'], ['seller', 'Продавец'], ['support', 'Поддержка'], ['admin', 'Владелец']]} />
+        {f.role === 'seller' ? <>
+          <Input placeholder="Магазин" value={f.shop_name || ''} onChangeText={(v) => setF({ ...f, shop_name: v })} />
+          <Input placeholder="Адрес забора" value={f.pickup_address || ''} onChangeText={(v) => setF({ ...f, pickup_address: v })} />
+        </> : null}
         <Input placeholder="Имя" value={f.name} onChangeText={(v) => setF({ ...f, name: v })} />
         <Input placeholder="Телефон" keyboardType="phone-pad" value={f.phone} onChangeText={(v) => setF({ ...f, phone: v })} />
         <Input placeholder="Пароль (мин. 6)" value={f.password} onChangeText={(v) => setF({ ...f, password: v })} />
@@ -135,7 +152,7 @@ export function Users() {
       </Card>
       {data?.users.map((u) => (
         <Card key={u.id}>
-          <View style={s.between}><T bold style={{ flex: 1 }}>{u.name}</T><T muted size={13}>{ROLES[u.role]}</T></View>
+          <View style={s.between}><T bold style={{ flex: 1 }}>{u.name}</T><T muted size={13}>{ROLES[u.role]}{u.role === 'seller' && !u.approved ? ' · заявка' : ''}</T></View>
           <T muted size={14}>{phone(u.phone)}{u.shop_name ? ' · ' + u.shop_name : ''} · {date(u.created_at)}</T>
           {u.id !== user.id ? <Button small kind={u.active ? 'ghost' : 'brand'} title={u.active ? 'Заблокировать' : 'Разблокировать'} onPress={toggle(u)} style={{ alignSelf: 'flex-start', marginTop: 4 }} /> : null}
         </Card>

@@ -8,7 +8,7 @@ def must(s, old, new, count=1):
     return s.replace(old, new) if count == 0 else s.replace(old, new, count)
 
 def common(s):
-    for a, b in [('href="/app#register-seller"', 'href="app.html#register-seller"'), ('href="/app"', 'href="app.html"'),
+    for a, b in [('href="/app#', 'href="app.html#'), ('href="/app"', 'href="app.html"'), ('"/install.js"', '"install.js"'),
                  ('href="/offer"', 'href="offer.html"'), ('href="/privacy"', 'href="privacy.html"'), ('href="/"', 'href="index.html"'),
                  ('"/styles.css"', '"styles.css"'), ('"/common.js"', '"common.js"'), ('"/app.js"', '"app.js"'), ('"/icon.svg"', '"icon.svg"')]:
         s = s.replace(a, b)
@@ -35,6 +35,8 @@ css += '''
 '''
 write('styles.css', css)
 shutil.copy(os.path.join(src, 'icon.svg'), out)
+shutil.copy(os.path.join(src, 'icon-192.png'), out)
+write('install.js', read('install.js').replace('"/icon-192.png"', '"icon-192.png"').replace('src="/icon-192.png"', 'src="icon-192.png"'))
 write('common.js', read('common.js'))
 
 # --- кабинеты

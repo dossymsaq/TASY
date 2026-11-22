@@ -48,7 +48,7 @@ function limit(key, max, windowMs, msg = 'Слишком много попыто
   if (record) { arr.push(now); hits.set(key, arr); }
 }
 setInterval(() => { const now = Date.now(); for (const [k, a] of hits) if (!a.some((t) => now - t < 3600e3)) hits.delete(k); }, 600e3).unref();
-const publicUser = (u) => u && ({ id: u.id, role: u.role, name: u.name, phone: u.phone, shop_name: u.shop_name, pickup_address: u.pickup_address, active: !!u.active, created_at: u.created_at });
+const publicUser = (u) => u && ({ id: u.id, role: u.role, name: u.name, phone: u.phone, shop_name: u.shop_name, pickup_address: u.pickup_address, active: !!u.active, approved: !!u.approved, created_at: u.created_at });
 
 function logEvent(orderId, status, note, actorId) {
   db.prepare('INSERT INTO order_events (order_id,status,note,actor_id) VALUES (?,?,?,?)').run(orderId, status, note || null, actorId || null);
@@ -256,9 +256,18 @@ function createAccount(b, phone, password) {
   const pickup = role === 'seller' ? str(b.pickup_address, 'Адрес забора товара') : null;
   if (db.prepare('SELECT 1 FROM users WHERE phone = ?').get(phone)) fail(409, 'Этот телефон уже зарегистрирован');
   const pw = password === null ? crypto.randomBytes(24).toString('hex') : String(password);
-  const r = db.prepare('INSERT INTO users (role,name,phone,shop_name,pickup_address,password_hash) VALUES (?,?,?,?,?,?)')
-    .run(role, name, phone, shop, pickup, hashPassword(pw));
+  const approved = role === 'seller' && cfg.SELLER_APPROVAL ? 0 : 1;
+  const r = db.prepare('INSERT INTO users (role,name,phone,shop_name,pickup_address,password_hash,approved) VALUES (?,?,?,?,?,?,?)')
+    .run(role, name, phone, shop, pickup, hashPassword(pw), approved);
+  if (!approved) {
+    push.sendToUsers(activeIds('admin'), { title: 'Новая заявка продавца', body: `${shop} · ${name}, +${phone}`, data: { tab: 'users' } }, 'владелец').catch(() => {});
+  }
   return db.prepare('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid);
+}
+// Продавец может оформлять заказы только после одобрения заявки владельцем
+function approvedSeller(req, res, next) {
+  if (!req.user.approved) return res.status(403).json({ error: 'Заявка на подключение ещё на рассмотрении. После подписания договора мы откроем доступ.' });
+  next();
 }
 
 api.post('/auth/register', (req, res) => {
@@ -409,7 +418,7 @@ api.get('/seller/stats', auth('seller'), (req, res) => {
     FROM orders WHERE seller_id = ?`).get(req.user.id, req.user.id);
   res.json(s);
 });
-api.post('/seller/orders', auth('seller'), async (req, res) => {
+api.post('/seller/orders', auth('seller'), approvedSeller, async (req, res) => {
   const b = req.body || {};
   const weight = Number(b.weight_kg);
   if (!(weight > 0)) fail(400, 'Укажите вес посылки');
@@ -439,7 +448,7 @@ function ownOrder(req) {
   if (o.seller_id !== req.user.id) fail(404, 'Заказ не найден');
   return o;
 }
-api.post('/seller/orders/:id/pay', auth('seller'), async (req, res) => {
+api.post('/seller/orders/:id/pay', auth('seller'), approvedSeller, async (req, res) => {
   res.json(await startOnlinePayment(ownOrder(req), 'seller'));
 });
 api.post('/seller/orders/:id/cancel', auth('seller'), async (req, res) => {
@@ -538,11 +547,12 @@ api.get('/admin/stats', auth('admin', 'support'), (req, res) => {
   const deliveredToday = q("SELECT COUNT(*) v FROM orders WHERE status='delivered' AND date(delivered_at)=date('now')").v;
   const users = Object.fromEntries(db.prepare('SELECT role, COUNT(*) n FROM users GROUP BY role').all().map((r) => [r.role, r.n]));
   const openTickets = q("SELECT COUNT(*) v FROM tickets WHERE status != 'closed'").v;
+  const pendingSellers = q("SELECT COUNT(*) v FROM users WHERE role = 'seller' AND approved = 0 AND active = 1").v;
   const cash = q("SELECT COALESCE(SUM(amount),0) v FROM payments WHERE status='paid' AND method='cash'").v;
   const cashOnHands = q("SELECT COALESCE(SUM(amount),0) v FROM payments WHERE status='paid' AND method='cash' AND handover_id IS NULL").v;
   const daily = db.prepare(`SELECT date(created_at) day, SUM(amount) revenue, COUNT(DISTINCT order_id) orders FROM payments
     WHERE status='paid' AND created_at >= date('now','-13 days') GROUP BY day ORDER BY day`).all();
-  res.json({ byStatus, revenue, revenueToday, ordersToday, deliveredToday, users, openTickets, cash, cashOnHands, daily });
+  res.json({ byStatus, revenue, revenueToday, ordersToday, deliveredToday, users, openTickets, pendingSellers, cash, cashOnHands, daily });
 });
 api.get('/admin/orders', auth('admin', 'support'), (req, res) => {
   const where = []; const args = [];
@@ -594,6 +604,14 @@ api.post('/admin/users', auth('admin'), (req, res) => {
   const r = db.prepare('INSERT INTO users (role,name,phone,shop_name,pickup_address,password_hash) VALUES (?,?,?,?,?,?)')
     .run(b.role, str(b.name, 'Имя', 100), phone, b.shop_name || null, b.pickup_address || null, hashPassword(String(b.password)));
   res.status(201).json({ user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid)) });
+});
+// Владелец одобряет заявку продавца (после подписания договора)
+api.post('/admin/users/:id/approve', auth('admin'), (req, res) => {
+  const u = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'seller'").get(req.params.id);
+  if (!u) fail(404, 'Продавец не найден');
+  db.prepare('UPDATE users SET approved = 1 WHERE id = ?').run(u.id);
+  notifyPerson(u.phone, { title: 'Заявка одобрена', body: 'Можно оформлять доставки в Жеткіз 750.', smsText: 'Жеткіз 750: ваша заявка одобрена, можно оформлять доставки.', data: { tab: 'new' } }).catch(() => {});
+  res.json({ user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(u.id)) });
 });
 api.patch('/admin/users/:id', auth('admin'), (req, res) => {
   const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);

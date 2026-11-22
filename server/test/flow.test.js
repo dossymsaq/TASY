@@ -265,6 +265,8 @@ test('удаление аккаунта: данные стёрты, номер �
   let r = await call('POST', '/auth/otp/request', { phone });
   r = await call('POST', '/auth/otp/verify', { phone, code: r.data.dev_code, name: 'Удаляемый', role: 'seller', shop_name: 'Shop', pickup_address: 'ул. Абая, 1' });
   const token = r.data.token;
+  const adm = await login('77000000001', 'admin123');
+  await call('POST', `/admin/users/${r.data.user.id}/approve`, null, adm);
   const o = (await call('POST', '/seller/orders', { buyer_name: 'Б', buyer_phone: '77010000099', address: 'ул. 1', district: 'Нура', item_desc: 'X', weight_kg: 0.1 }, token)).data.order;
   // покупатель успел оплатить свою часть по ещё неоплаченному продавцом заказу
   await payOnline((await call('POST', `/track/${o.code}/pay`)).data);
@@ -285,4 +287,32 @@ test('удаление аккаунта: данные стёрты, номер �
 
   const courier = await login('77000000003', 'courier123');
   assert.equal((await call('DELETE', '/me', { confirm: 'УДАЛИТЬ' }, courier)).status, 400);
+});
+
+test('продавец по договору: заявка → одобрение владельцем → заказы', async () => {
+  const phone = '77016660011';
+  let r = await call('POST', '/auth/otp/request', { phone });
+  r = await call('POST', '/auth/otp/verify', { phone, code: r.data.dev_code, name: 'Жанар', role: 'seller', shop_name: 'Zhanar Bags', pickup_address: 'ул. Сыганак, 2' });
+  assert.equal(r.status, 201);
+  assert.equal(r.data.user.approved, false, 'новый продавец — заявка');
+  const token = r.data.token;
+  const order = { buyer_name: 'А', buyer_phone: '77010001111', address: 'ул. 1', district: 'Есиль', item_desc: 'Сумка', weight_kg: 1 };
+  r = await call('POST', '/seller/orders', order, token);
+  assert.equal(r.status, 403, 'до одобрения заказы недоступны');
+  assert.match(r.data.error, /рассмотрении/);
+
+  const admin = await login('77000000001', 'admin123');
+  assert.ok((await call('GET', '/admin/stats', null, admin)).data.pendingSellers >= 1);
+  const courier = await login('77000000003', 'courier123');
+  assert.equal((await call('POST', `/admin/users/${(await call('GET', '/me', null, token)).data.user.id}/approve`, null, courier)).status, 403, 'одобряет только владелец');
+  const id = (await call('GET', '/me', null, token)).data.user.id;
+  r = await call('POST', `/admin/users/${id}/approve`, null, admin);
+  assert.equal(r.data.user.approved, true);
+  assert.equal((await call('POST', '/seller/orders', order, token)).status, 201, 'после одобрения можно');
+
+  // покупатель регистрируется сразу, без одобрения
+  r = await call('POST', '/auth/otp/request', { phone: '77016660022' });
+  r = await call('POST', '/auth/otp/verify', { phone: '77016660022', code: r.data.dev_code, name: 'Клиент' });
+  assert.equal(r.data.user.role, 'client');
+  assert.equal(r.data.user.approved, true);
 });

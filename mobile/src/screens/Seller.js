@@ -1,6 +1,6 @@
 import React from 'react';
 import { Linking, Share, View } from 'react-native';
-import { SITE_URL, api, money, openPayment } from '../api';
+import { SITE_URL, api, money, openPayment, phone } from '../api';
 import { Empty, OrderCard, Scroll, alertError, confirm, useLoad } from '../common';
 import { useNav } from '../nav';
 import { Button, Card, Chips, Err, H, Input, T, s } from '../ui';
@@ -12,7 +12,25 @@ export async function shareOrder(o, user, cfg) {
 }
 const whatsapp = (o, user, cfg) => Linking.openURL(`https://wa.me/${o.buyer_phone}?text=${encodeURIComponent(`Здравствуйте! Ваш заказ из «${user.shop_name}» доставит курьер Жеткіз 750. Оплата доставки ${money(cfg.price_buyer)} и отслеживание: ${trackLink(o)}`)}`);
 
+function PendingNote({ user, cfg }) {
+  return (
+    <Scroll>
+      <Card style={{ gap: 10, borderColor: '#fec50c' }}>
+        <H>Заявка на рассмотрении</H>
+        <T>Спасибо, {user.name}! Мы получили заявку магазина «{user.shop_name}». Менеджер свяжется с вами по номеру {phone(user.phone)}, чтобы заключить договор.</T>
+        <T muted size={14}>После подписания договора здесь откроется оформление доставок по Астане за {money(cfg.price_seller)}. Потяните экран вниз в «Мои заказы» или перезайдите, чтобы обновить статус.</T>
+      </Card>
+    </Scroll>
+  );
+}
+
+// Пока заявка продавца не одобрена владельцем — вместо формы сообщение
 export function NewOrder() {
+  const { cfg, user } = useNav();
+  return user.approved ? <NewOrderForm /> : <PendingNote user={user} cfg={cfg} />;
+}
+
+function NewOrderForm() {
   const { cfg, user, push } = useNav();
   const empty = { buyer_name: '', buyer_phone: '', address: '', district: '', weight_kg: '', item_desc: '', comment: '', pickup_address: user.pickup_address || '' };
   const [f, setF] = React.useState(empty);

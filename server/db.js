@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
   pickup_address TEXT,
   password_hash TEXT NOT NULL,
   active INTEGER NOT NULL DEFAULT 1,
+  approved INTEGER NOT NULL DEFAULT 1, -- продавец: 0 — заявка ждёт одобрения владельцем (договор)
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -150,6 +151,7 @@ if (!cols('payments').includes('collected_by')) {
   // Наличные, полученные до этой версии, считаем у курьера заказа
   db.exec("UPDATE payments SET collected_by = (SELECT courier_id FROM orders WHERE orders.id = payments.order_id) WHERE method = 'cash'");
 }
+if (!cols('users').includes('approved')) db.exec('ALTER TABLE users ADD COLUMN approved INTEGER NOT NULL DEFAULT 1');
 db.exec('CREATE INDEX IF NOT EXISTS idx_payments_cash ON payments(collected_by, handover_id)');
 
 function hashPassword(password) {

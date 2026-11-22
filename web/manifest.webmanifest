@@ -3,12 +3,71 @@
   "short_name": "Жеткіз 750",
   "start_url": "/app",
   "display": "standalone",
-  "background_color": "#f4f7f9",
-  "theme_color": "#00a3bf",
+  "background_color": "#0e1a24",
+  "theme_color": "#0e1a24",
   "lang": "ru",
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "id": "/app",
+  "scope": "/",
+  "description": "Курьерская доставка по Астане — 750 ₸. Вход для владельца, продавцов, клиентов и курьеров.",
+  "shortcuts": [
+    {
+      "name": "Вход для продавца",
+      "url": "/app#seller",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Вход для курьера",
+      "url": "/app#courier",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Вход для клиента",
+      "url": "/app#client",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Вход для владельца",
+      "url": "/app#owner",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
   ]
 }

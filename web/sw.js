@@ -1,6 +1,6 @@
 // Service worker: кэширует оболочку сайта, API всегда идёт в сеть
-const CACHE = 'jetkiz-v2';
-const SHELL = ['/', '/app', '/styles.css', '/common.js', '/app.js', '/icon.svg', '/manifest.webmanifest'];
+const CACHE = 'jetkiz-v3';
+const SHELL = ['/', '/app', '/styles.css', '/common.js', '/app.js', '/install.js', '/icon.svg', '/icon-192.png', '/manifest.webmanifest'];
 self.addEventListener('install', (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())));
 self.addEventListener('activate', (e) => e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())));
 self.addEventListener('fetch', (e) => {
