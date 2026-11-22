@@ -77,7 +77,7 @@ function authView(mode = location.hash === '#register-seller' ? 'seller' : 'logi
       </form>` : `
       <form data-form="otp" class="stack">
         <input type="hidden" name="role" value="${mode === 'seller' ? 'seller' : 'client'}">
-        ${mode === 'seller' ? '<p class="small muted" style="margin:0">Вы платите 750 ₸ за каждую доставку, ваш покупатель — тоже 750 ₸.</p>' : ''}
+        ${mode === 'seller' ? '<p class="small muted" style="margin:0">Доставка по Астане — 750 ₸, посылки до 2 кг.</p>' : ''}
         ${mode === 'client' ? '<p class="small muted" style="margin:0">Посылки, отправленные на ваш номер, появятся в кабинете автоматически.</p>' : ''}
         <div data-profile ${mode === 'login' ? 'hidden' : ''}><label>Ваше имя</label><input name="name" ${mode === 'login' ? '' : 'required'}></div>
         ${phoneField}
@@ -216,7 +216,7 @@ VIEWS.seller = {
     const c = S.cfg;
     return `<div class="card" style="max-width:760px">
       <h2>Новая доставка</h2>
-      <p class="muted small">Стоимость для вас — <b>${money(c.price_seller)}</b>. Покупатель оплачивает ${money(c.price_buyer)} по ссылке или курьеру. Вес — до ${c.max_weight_kg} кг, только ${c.city}.</p>
+      <p class="muted small">Доставка — <b>${money(c.price_seller)}</b>. Вес — до ${c.max_weight_kg} кг, в черте города ${c.city}.</p>
       <form data-form="createOrder" class="fields">
         <div><label>Имя покупателя</label><input name="buyer_name" required></div>
         <div><label>Телефон покупателя</label><input name="buyer_phone" type="tel" placeholder="+7 7XX XXX XX XX" required></div>
@@ -271,7 +271,7 @@ function showShare(o) {
   const link = `${location.origin}/t/${o.code}`;
   const text = shareText(o);
   openDialog(`<div class="row between"><h3 style="margin:0">Отправьте ссылку покупателю</h3><button class="btn ghost sm" data-close>✕</button></div>
-    <p class="muted small">По ссылке покупатель оплатит свои ${money(S.cfg.price_buyer)} и увидит, где его посылка.</p>
+    <p class="muted small">По ссылке покупатель увидит, где его посылка.</p>
     <input value="${esc(link)}" readonly onclick="this.select()">
     <div class="row" style="margin-top:12px">
       <a class="btn" target="_blank" rel="noopener" href="https://wa.me/${esc(o.buyer_phone)}?text=${encodeURIComponent(text)}">WhatsApp</a>

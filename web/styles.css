@@ -98,11 +98,11 @@ dialog .card { border: 0; box-shadow: none; }
 .hero h1 { font-size: clamp(30px, 6vw, 52px); letter-spacing: -1px; }
 .hero h1 em { font-style: normal; color: var(--brand); }
 .hero p.lead { font-size: 19px; color: var(--muted); max-width: 640px; }
-.price-split { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: center; gap: 12px; text-align: center; }
+.price-split { display: grid; grid-template-columns: repeat(3, 1fr); align-items: center; gap: 12px; text-align: center; }
 .price-split .p { font-size: 30px; font-weight: 800; }
 .price-split .op { font-size: 28px; color: var(--muted); }
 .price-split .total { background: var(--sun); color: #14212b; border-radius: var(--radius); padding: 14px; }
-@media (max-width: 600px) { .price-split { grid-template-columns: 1fr; } .price-split .op { line-height: 1; } }
+@media (max-width: 600px) { .price-split { grid-template-columns: 1fr; } }
 .steps { counter-reset: s; }
 .steps .card::before { counter-increment: s; content: counter(s); display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--sun); color: #14212b; font-weight: 800; margin-bottom: 8px; }
 section { padding: 28px 0; }

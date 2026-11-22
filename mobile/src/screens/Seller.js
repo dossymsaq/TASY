@@ -31,7 +31,7 @@ export function NewOrder() {
     <Scroll>
       <Card style={{ gap: 12 }}>
         <H>Новая доставка</H>
-        <T muted size={14}>Для вас — {money(cfg.price_seller)}. Покупатель платит {money(cfg.price_buyer)}. До {cfg.max_weight_kg} кг, только {cfg.city}.</T>
+        <T muted size={14}>Доставка — {money(cfg.price_seller)}. До {cfg.max_weight_kg} кг, в черте города {cfg.city}.</T>
         <Input label="Имя покупателя" value={f.buyer_name} onChangeText={set('buyer_name')} />
         <Input label="Телефон покупателя" value={f.buyer_phone} onChangeText={set('buyer_phone')} keyboardType="phone-pad" placeholder="+7 7XX XXX XX XX" />
         <Input label="Адрес доставки" value={f.address} onChangeText={set('address')} placeholder="Улица, дом, подъезд, квартира" />
@@ -54,7 +54,7 @@ export function Shared({ order }) {
     <Scroll>
       <Card style={{ gap: 10 }}>
         <H>Отправьте ссылку покупателю</H>
-        <T muted>По ссылке покупатель оплатит {money(cfg.price_buyer)}, и увидит, где его посылка.</T>
+        <T muted>По ссылке покупатель увидит, где его посылка.</T>
         <T selectable bold>{trackLink(order)}</T>
         <Button title="WhatsApp" onPress={() => whatsapp(order, user, cfg)} />
         <Button kind="ghost" title="Поделиться…" onPress={() => shareOrder(order, user, cfg)} />

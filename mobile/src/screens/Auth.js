@@ -44,7 +44,7 @@ export default function Auth({ onLogin }) {
       <ScrollView contentContainerStyle={[s.list, { paddingTop: 32 }]} keyboardShouldPersistTaps="handled">
         <View style={{ alignItems: 'center', marginBottom: 8 }}>
           <T bold size={30}>Жеткіз <T bold size={30} style={{ backgroundColor: '#fec50c', color: '#14212b' }}> 750 </T></T>
-          <T muted style={{ textAlign: 'center', marginTop: 6 }}>Доставка по Астане до 2 кг.{'\n'}750 ₸ платит продавец + 750 ₸ покупатель</T>
+          <T muted style={{ textAlign: 'center', marginTop: 6 }}>Доставка по Астане — 750 ₸{'\n'}Посылки до 2 кг в любой район города</T>
         </View>
         {DEMO ? <Card style={{ backgroundColor: '#fec50c', borderColor: '#fec50c' }}>
           <T bold color="#14212b">Демо-версия</T>
