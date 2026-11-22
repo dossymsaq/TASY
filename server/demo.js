@@ -15,7 +15,7 @@ module.exports = async function seedDemoOrders(base) {
   const courier = await login('77000000003', 'courier123');
   const order = async (o, paid = true) => {
     const r = await api('POST', '/seller/orders', { district: 'Есиль', weight_kg: 1, pay_now: paid, ...o }, seller);
-    if (paid) await api('POST', '/payments/callback/mock', { invoice: r.invoice, result: 'ok' });
+    if (paid && r.invoice) await api('POST', '/payments/callback/mock', { invoice: r.invoice, result: 'ok' });
     return r.order;
   };
   const a = await order({ buyer_name: 'Асель', buyer_phone: '77000000005', address: 'ул. Кенесары, 40, кв 12', item_desc: 'Букет роз' });
@@ -24,7 +24,7 @@ module.exports = async function seedDemoOrders(base) {
   await order({ buyer_name: 'Тимур', buyer_phone: '77019998877', address: 'ул. Достык, 5', item_desc: 'Часы', weight_kg: 0.4 }, false);
   for (const o of [a, b]) {
     await api('POST', `/courier/orders/${o.id}/take`, null, courier);
-    await api('POST', `/courier/orders/${o.id}/pickup`, null, courier);
+    await api('POST', `/courier/orders/${o.id}/pickup`, { seller_cash_received: true }, courier);
   }
   await api('POST', `/courier/orders/${b.id}/deliver`, { cash_received: true }, courier);
   await api('POST', '/tickets', { subject: 'Когда привезут?', message: 'Здравствуйте! Подскажите, во сколько ждать курьера?', contact_name: 'Асель', contact_phone: '77000000005', order_code: a.code });

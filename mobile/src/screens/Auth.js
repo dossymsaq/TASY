@@ -1,6 +1,7 @@
 import React from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
-import { DEMO, api, openSite, saveToken } from '../api';
+import { DEMO, api, money, openSite, saveToken } from '../api';
+import { useNav } from '../nav';
 import { Button, Card, Err, H, Input, T, s, useTheme } from '../ui';
 
 // Четыре входа: владелец и курьер — по паролю; продавец и клиент — по SMS-коду.
@@ -20,6 +21,9 @@ const DEMO_HINT = {
 
 export default function Auth({ onLogin }) {
   const th = useTheme();
+  const { cfg } = useNav();
+  const sms = cfg?.sms_login !== false; // мягкий старт: без SMS — вход по паролю, клиенты без входа
+  const [track, setTrack] = React.useState(null);
   const [mode, setMode] = React.useState('choose'); // choose | owner | courier | seller | seller-apply | client
   const empty = { phone: '', password: '', name: '', shop_name: '', pickup_address: '', code: '' };
   const [f, setF] = React.useState(empty);
@@ -27,7 +31,7 @@ export default function Auth({ onLogin }) {
   const [needName, setNeedName] = React.useState(false);
   const [err, setErr] = React.useState('');
   const set = (k) => (v) => setF((x) => ({ ...x, [k]: v }));
-  const go = (m, keep = false) => { setMode(m); setErr(''); setNeedName(false); if (!keep) { setSent(false); setF(empty); } };
+  const go = (m, keep = false) => { setMode(m); setErr(''); setNeedName(false); setTrack(null); if (!keep) { setSent(false); setF(empty); } };
 
   const done = async (r) => { await saveToken(r.token); onLogin(r.user); };
   const requestCode = async () => {
@@ -41,7 +45,9 @@ export default function Auth({ onLogin }) {
   const submit = async () => {
     setErr('');
     try {
-      if (mode === 'owner' || mode === 'courier') return await done(await api('POST', '/auth/login', { phone: f.phone, password: f.password }));
+      if (isPassword) return await done(await api('POST', '/auth/login', { phone: f.phone, password: f.password }));
+      if (!sms && mode === 'seller-apply') return await done(await api('POST', '/auth/register', { role: 'seller', name: f.name, phone: f.phone, shop_name: f.shop_name, pickup_address: f.pickup_address, password: f.password }));
+      if (!sms && mode === 'client') { setTrack((await api('GET', `/track/${encodeURIComponent(f.code.trim().toUpperCase())}`)).order); return; }
       if (!sent) return await requestCode();
       const body = { phone: f.phone, code: f.code, role: mode === 'client' ? 'client' : 'seller' };
       if (mode === 'seller-apply' || needName) Object.assign(body, { name: f.name, shop_name: f.shop_name, pickup_address: f.pickup_address });
@@ -63,8 +69,30 @@ export default function Auth({ onLogin }) {
     'seller-apply': 'Доставка по Астане — 750 ₸, посылки до 2 кг. После заявки мы свяжемся с вами и заключим договор.',
     client: 'Посылки, отправленные на ваш номер, появятся автоматически.',
   }[mode];
-  const isPassword = mode === 'owner' || mode === 'courier';
-  const hint = DEMO ? DEMO_HINT[mode === 'seller-apply' ? 'seller' : mode] : null;
+  const isPassword = mode === 'owner' || mode === 'courier' || (!sms && mode === 'seller');
+  const hint = DEMO ? (!sms && mode === 'seller' ? 'продавец 77000000004 / seller123' : !sms && mode === 'client' ? null : DEMO_HINT[mode === 'seller-apply' ? 'seller' : mode]) : null;
+  const roles = sms ? ROLES : ROLES.map((r) => (r[0] === 'client' ? ['client', '📦', 'Где моя посылка?', 'Отслеживание по коду заказа — вход не нужен'] : r));
+  if (!sms && mode === 'client') {
+    return (
+      <ScrollView contentContainerStyle={[s.list, { paddingTop: 32 }]} keyboardShouldPersistTaps="handled">
+        <Card style={{ gap: 12 }}>
+          <H>Где моя посылка?</H>
+          <T muted size={14}>Вход не нужен. Введите код заказа из сообщения продавца.</T>
+          <Input label="Код заказа" value={f.code} onChangeText={set('code')} autoCapitalize="characters" placeholder="Например, K7QX2M9A" />
+          <Err>{err}</Err>
+          <Button title="Найти" onPress={submit} />
+          {track ? <View style={{ gap: 6 }}>
+            <T bold size={18}>{track.status_text}</T>
+            <T>{track.item_desc} · от «{track.seller?.shop_name || track.seller?.name}»</T>
+            <T muted size={14}>{track.address}, р-н {track.district}</T>
+            {track.courier ? <T size={14}>Курьер: {track.courier.name}</T> : null}
+            {!track.buyer_paid && track.status !== 'cancelled' ? <T size={14}>Доставка {money(cfg.price_buyer)} — наличными курьеру при получении.</T> : null}
+          </View> : null}
+          {link('← Выбрать другой вход', () => go('choose'))}
+        </Card>
+      </ScrollView>
+    );
+  }
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -81,7 +109,7 @@ export default function Auth({ onLogin }) {
         {mode === 'choose' ? (
           <Card style={{ gap: 12 }}>
             <H>Кто вы?</H>
-            {ROLES.map(([m, icon, t, d]) => (
+            {roles.map(([m, icon, t, d]) => (
               <Pressable key={m} onPress={() => go(m)} accessibilityRole="button"
                 style={({ pressed }) => ({ flexDirection: 'row', gap: 14, alignItems: 'center', padding: 14, borderRadius: 14, borderWidth: 1, borderColor: th.line, backgroundColor: th.bg, opacity: pressed ? 0.8 : 1 })}>
                 <T size={26}>{icon}</T>
@@ -100,10 +128,10 @@ export default function Auth({ onLogin }) {
               <Input label="Название магазина" value={f.shop_name} onChangeText={set('shop_name')} />
               <Input label="Адрес, откуда забирать товар" value={f.pickup_address} onChangeText={set('pickup_address')} />
             </> : null}
-            {isPassword ? <Input label="Пароль" value={f.password} onChangeText={set('password')} secureTextEntry /> : null}
+            {isPassword || (!sms && mode === 'seller-apply') ? <Input label={mode === 'seller-apply' ? 'Придумайте пароль (мин. 6)' : 'Пароль'} value={f.password} onChangeText={set('password')} secureTextEntry /> : null}
             {sent && !isPassword ? <Input label="Код из SMS" value={f.code} onChangeText={set('code')} keyboardType="number-pad" maxLength={6} autoComplete="sms-otp" textContentType="oneTimeCode" /> : null}
             <Err>{err}</Err>
-            <Button title={isPassword ? 'Войти' : !sent ? 'Получить код по SMS' : mode === 'seller-apply' ? 'Отправить заявку' : 'Войти'} onPress={submit} />
+            <Button title={isPassword ? 'Войти' : !sms ? 'Отправить заявку' : !sent ? 'Получить код по SMS' : mode === 'seller-apply' ? 'Отправить заявку' : 'Войти'} onPress={submit} />
             {!isPassword ? <T muted size={12}>Продолжая, вы принимаете условия{' '}
               <T size={12} color={th.brand} onPress={() => openSite('/offer')}>публичной оферты</T> и{' '}
               <T size={12} color={th.brand} onPress={() => openSite('/privacy')}>политики конфиденциальности</T>.</T> : null}

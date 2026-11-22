@@ -245,6 +245,8 @@ api.get('/config', (req, res) => res.json({
   city: cfg.CITY, price_seller: cfg.PRICE_SELLER, price_buyer: cfg.PRICE_BUYER,
   price_total: cfg.PRICE_SELLER + cfg.PRICE_BUYER, max_weight_kg: cfg.MAX_WEIGHT_KG,
   districts: cfg.DISTRICTS, statuses: cfg.STATUSES, payment_mode: payments.MODE, sms_mode: sms.MODE,
+  demo_hints: process.env.NODE_ENV !== 'production', // подсказки с демо-аккаунтами — не на рабочем сервере
+  launch_mode: cfg.LAUNCH_MODE, online_payments: cfg.ONLINE_PAYMENTS, sms_login: cfg.SMS_LOGIN, client_accounts: cfg.SMS_LOGIN,
 }));
 
 // Создаёт продавца или покупателя. password === null — аккаунт только для входа по SMS.
@@ -270,8 +272,11 @@ function approvedSeller(req, res, next) {
   next();
 }
 
+// Регистрация по паролю — только заявка продавца (номер проверит владелец при звонке).
+// Клиенты регистрируются только по SMS-коду: иначе по чужому номеру можно было бы увидеть чужие посылки.
 api.post('/auth/register', (req, res) => {
   const b = req.body || {};
+  if (b.role !== 'seller') fail(400, 'Клиенты входят по SMS-коду');
   const user = createAccount(b, normPhone(b.phone), b.password);
   res.status(201).json({ token: newSession(user.id), user: publicUser(user) });
 });
@@ -279,7 +284,8 @@ api.post('/auth/register', (req, res) => {
 // ---------- вход по SMS-коду ----------
 const otpHash = (phone, code) => crypto.createHash('sha256').update(`${phone}:${code}:${cfg.OTP_SECRET}`).digest('hex');
 
-api.post('/auth/otp/request', async (req, res) => {
+const smsLoginOn = (req, res, next) => (cfg.SMS_LOGIN ? next() : res.status(403).json({ error: 'Вход по SMS пока недоступен — войдите по паролю' }));
+api.post('/auth/otp/request', smsLoginOn, async (req, res) => {
   const phone = normPhone(req.body?.phone);
   limit('otp-ip:' + req.ip, 20, 3600e3);
   const last = db.prepare("SELECT (julianday('now') - julianday(created_at)) * 86400 AS ago FROM otp_codes WHERE phone = ? ORDER BY id DESC LIMIT 1").get(phone);
@@ -300,7 +306,7 @@ api.post('/auth/otp/request', async (req, res) => {
 
 // Проверка кода. Если номер новый — нужны данные профиля (name, role, для продавца shop_name и pickup_address);
 // без них ответ { need_profile: true }, код при этом не тратится.
-api.post('/auth/otp/verify', (req, res) => {
+api.post('/auth/otp/verify', smsLoginOn, (req, res) => {
   const b = req.body || {};
   const phone = normPhone(b.phone);
   const otp = db.prepare("SELECT * FROM otp_codes WHERE phone = ? AND used = 0 AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1").get(phone);
@@ -390,9 +396,10 @@ function byCode(code) {
 api.get('/track/:code', (req, res) => {
   const o = fullOrder(byCode(req.params.code));
   delete o.seller.phone;
-  res.json({ order: o, price_buyer: cfg.PRICE_BUYER });
+  res.json({ order: o, price_buyer: cfg.PRICE_BUYER, online_payments: cfg.ONLINE_PAYMENTS });
 });
-api.post('/track/:code/pay', async (req, res) => {
+const onlinePaymentsOn = (req, res, next) => (cfg.ONLINE_PAYMENTS ? next() : res.status(400).json({ error: 'Онлайн-оплата пока недоступна — оплатите доставку наличными курьеру' }));
+api.post('/track/:code/pay', onlinePaymentsOn, async (req, res) => {
   limit('pay-ip:' + req.ip, 30, 3600e3);
   res.json(await startOnlinePayment(byCode(req.params.code), 'buyer'));
 });
@@ -440,7 +447,9 @@ api.post('/seller/orders', auth('seller'), approvedSeller, async (req, res) => {
     logEvent(r.lastInsertRowid, 'new', 'Заказ создан', req.user.id);
     return r.lastInsertRowid;
   });
-  const payment = b.pay_now ? await startOnlinePayment(getOrder(id), 'seller') : {};
+  // Без онлайн-оплаты заказ сразу уходит курьерам, продавец платит курьеру наличными при заборе
+  if (!cfg.ONLINE_PAYMENTS) setStatus(getOrder(id), 'ready', `Оплата ${cfg.PRICE_SELLER} ₸ — наличными курьеру при заборе`, req.user.id);
+  const payment = b.pay_now && cfg.ONLINE_PAYMENTS ? await startOnlinePayment(getOrder(id), 'seller') : {};
   res.status(201).json({ order: fullOrder(getOrder(id)), ...payment });
 });
 function ownOrder(req) {
@@ -448,7 +457,7 @@ function ownOrder(req) {
   if (o.seller_id !== req.user.id) fail(404, 'Заказ не найден');
   return o;
 }
-api.post('/seller/orders/:id/pay', auth('seller'), approvedSeller, async (req, res) => {
+api.post('/seller/orders/:id/pay', auth('seller'), approvedSeller, onlinePaymentsOn, async (req, res) => {
   res.json(await startOnlinePayment(ownOrder(req), 'seller'));
 });
 api.post('/seller/orders/:id/cancel', auth('seller'), async (req, res) => {
@@ -524,7 +533,12 @@ api.post('/courier/orders/:id/take', auth('courier'), (req, res) => {
 });
 api.post('/courier/orders/:id/pickup', auth('courier'), (req, res) => {
   const o = courierOrder(req, ['assigned']);
-  setStatus(o, 'picked_up', 'Курьер забрал посылку у продавца', req.user.id);
+  // Продавец не платил онлайн — курьер получает его 750 ₸ наличными при заборе
+  if (!o.seller_paid) {
+    if (!req.body?.seller_cash_received) fail(400, `Получите у продавца ${cfg.PRICE_SELLER} ₸ наличными`);
+    payCash(o, 'seller', req.user.id);
+  }
+  setStatus(getOrder(o.id), 'picked_up', 'Курьер забрал посылку у продавца', req.user.id);
   res.json({ ok: true });
 });
 api.post('/courier/orders/:id/deliver', auth('courier'), async (req, res) => {

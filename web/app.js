@@ -71,7 +71,7 @@ const ROLE_CARDS = [
   ['client', 'Клиент', 'Посылки, отправленные на ваш номер, и их статус', 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c0-4 4-6 8-6s8 2 8 6'],
   ['courier', 'Курьер', 'Заказы, маршруты, вручение и наличные', 'M3 7h11v9H3zM14 10h4l3 3v3h-7M7 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM17 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z'],
 ];
-const demoHint = (txt) => (S.cfg?.sms_mode === 'mock' ? `<p class="small muted" style="margin:0">Демо: ${txt}</p>` : '');
+const demoHint = (txt) => (S.cfg?.demo_hints ? `<p class="small muted" style="margin:0">Демо: ${txt}</p>` : '');
 function authView(mode = AUTH_HASH[location.hash] || 'choose') {
   $tabs.innerHTML = '';
   document.getElementById('who').textContent = '';
@@ -84,9 +84,11 @@ function authView(mode = AUTH_HASH[location.hash] || 'choose') {
     <form data-form="login" class="stack">${phoneField}
       <div><label for="aPass">Пароль</label><input id="aPass" name="password" type="password" autocomplete="current-password" required></div>
       <div class="err"></div><button class="btn block">Войти</button>${demoHint(hint)}</form>${back}`;
+  const sms = S.cfg?.sms_login !== false;
+  const cards = sms ? ROLE_CARDS : ROLE_CARDS.map((c) => (c[0] === 'client' ? ['client', 'Клиент', 'Отслеживание посылки по ссылке или коду — вход не нужен', c[3]] : c));
   const views = {
     choose: `<h2 style="margin:0">Вход в Жеткіз 750</h2><p class="muted" style="margin:0">Выберите, кто вы:</p>
-      <div class="role-grid">${ROLE_CARDS.map(([m, t, d, icon]) => `<a href="#${m}" class="role-card" data-act="authMode" data-m="${m}">
+      <div class="role-grid">${cards.map(([m, t, d, icon]) => `<a href="#${m}" class="role-card" data-act="authMode" data-m="${m}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icon}"/></svg><b>${t}</b><span>${d}</span></a>`).join('')}</div>`,
     owner: passwordForm('Вход для владельца', 'Сотрудники поддержки входят здесь же.', 'владелец 77000000001 / admin123, поддержка 77000000002 / support123'),
     courier: passwordForm('Вход для курьера', 'Логин и пароль выдаёт владелец сервиса.', 'курьер 77000000003 / courier123'),
@@ -106,11 +108,28 @@ function authView(mode = AUTH_HASH[location.hash] || 'choose') {
         <div data-profile hidden><label for="aName">Ваше имя</label><input id="aName" name="name"></div>${phoneField}${codeField}${otpTail}</form>
       ${demoHint('клиент 77000000005 — код подставится сам')}${back}`,
   };
+  // Мягкий старт: продавец входит по паролю, клиент — без входа, по ссылке
+  if (!sms) Object.assign(views, {
+      seller: passwordForm('Вход для продавца', 'Для магазинов, работающих с нами по договору. Пароль вы задали в заявке.', 'продавец 77000000004 / seller123')
+        .replace(back, `<p class="small" style="margin:0">Ещё не работаете с нами? <a href="#register-seller" data-act="authMode" data-m="seller-apply">Подать заявку на подключение</a></p>${back}`),
+      'seller-apply': `<h2 style="margin:0">Заявка на подключение</h2><p class="small muted" style="margin:0">Доставка по Астане — 750 ₸, посылки до 2 кг. Мы позвоним вам, заключим договор и откроем оформление доставок.</p>
+        <form data-form="register" class="stack"><input type="hidden" name="role" value="seller">
+          <div><label for="aName">Ваше имя</label><input id="aName" name="name" required></div>${phoneField}
+          <div><label for="aShop">Название магазина</label><input id="aShop" name="shop_name" required></div>
+          <div><label for="aAddr">Адрес, откуда забирать товар</label><input id="aAddr" name="pickup_address" placeholder="Улица, дом, офис" required></div>
+          <div><label for="aPass">Придумайте пароль</label><input id="aPass" name="password" type="password" minlength="6" autocomplete="new-password" required></div>
+          <div class="err"></div><button class="btn block">Отправить заявку</button>${legal}</form>
+        <p class="small" style="margin:0">Уже подключены? <a href="#seller" data-act="authMode" data-m="seller">Войти</a></p>${back}`,
+      client: `<h2 style="margin:0">Где моя посылка?</h2><p class="small muted" style="margin:0">Вход не нужен: продавец отправил вам ссылку на посылку. Или введите код заказа из сообщения.</p>
+        <form class="row" onsubmit="event.preventDefault(); const c=this.code.value.trim(); if(c) location.href='/t/'+encodeURIComponent(c.toUpperCase())">
+          <input name="code" placeholder="Например, K7QX2M9A" style="flex:1;min-width:0;text-transform:uppercase" autocomplete="off" aria-label="Код заказа"><button class="btn">Найти</button></form>${back}`,
+  });
   $view.innerHTML = `${JInstall.banner()}<div class="card stack" style="max-width:520px;margin:24px auto">${views[mode] || views.choose}</div>`;
 }
 actions.authMode = (d) => { history.replaceState(null, '', d.m === 'choose' ? location.pathname + location.search : (d.m === 'seller-apply' ? '#register-seller' : '#' + d.m)); authView(d.m); };
 const forms = {};
 forms.login = async (f) => { const r = await api('POST', '/auth/login', f); store.token = r.token; start(); };
+forms.register = async (f) => { const r = await api('POST', '/auth/register', f); store.token = r.token; history.replaceState(null, '', '/app'); start(); };
 
 async function otpSend(form) {
   const r = await api('POST', '/auth/otp/request', { phone: form.phone.value });
@@ -254,7 +273,8 @@ VIEWS.seller = {
         <div class="full"><label>Адрес забора</label><input name="pickup_address" value="${esc(S.user.pickup_address)}" required></div>
         <div class="full"><label>Комментарий курьеру</label><textarea name="comment" placeholder="Необязательно"></textarea></div>
         <div class="full err"></div>
-        <div class="full row"><button class="btn sun">Создать и перейти к оплате ${money(c.price_seller)}</button></div>
+        ${c.online_payments ? '' : `<p class="full small muted" style="margin:0">Оплата доставки ${money(c.price_seller)} — наличными курьеру, когда он забирает посылку.</p>`}
+        <div class="full row"><button class="btn sun">${c.online_payments ? `Создать и перейти к оплате ${money(c.price_seller)}` : 'Создать заказ'}</button></div>
       </form></div>`;
   },
   orders: async () => {
@@ -266,7 +286,7 @@ VIEWS.seller = {
       <div class="card stat"><div class="v">${money(st.spent)}</div><div class="l">оплачено за доставку</div></div>
     </div>
     ${list(orders, (o) => orderCard(o, [
-      !o.seller_paid && o.status === 'new' ? `<button class="btn sun sm" data-act="sellerPay" data-id="${o.id}">Оплатить ${money(S.cfg.price_seller)}</button>` : '',
+      S.cfg.online_payments && !o.seller_paid && o.status === 'new' ? `<button class="btn sun sm" data-act="sellerPay" data-id="${o.id}">Оплатить ${money(S.cfg.price_seller)}</button>` : '',
       o.status !== 'cancelled' ? `<button class="btn ghost sm" data-act="share" data-code="${o.code}">Ссылка покупателю</button>` : '',
       ['new', 'ready'].includes(o.status) ? `<button class="btn ghost sm" data-act="sellerCancel" data-id="${o.id}">Отменить</button>` : '',
     ].join('')), 'Заказов пока нет — создайте первый во вкладке «Новый заказ»')}`;
@@ -275,8 +295,10 @@ VIEWS.seller = {
 VIEWS.seller.support = VIEWS.common.support;
 // Оплата: переходим на страницу банка, после оплаты банк вернёт на /app?paid=КОД
 forms.createOrder = async (f) => {
-  const { pay_url } = await api('POST', '/seller/orders', { ...f, pay_now: true });
-  location.href = pay_url;
+  const { order, pay_url } = await api('POST', '/seller/orders', { ...f, pay_now: true });
+  if (pay_url) { location.href = pay_url; return; }
+  // Мягкий старт: без онлайн-оплаты заказ сразу уходит курьерам
+  await go('orders'); toast('Заказ создан — курьер скоро приедет'); showShare(order);
 };
 actions.sellerPay = async (d) => { const { pay_url } = await api('POST', `/seller/orders/${d.id}/pay`); location.href = pay_url; };
 // Возврат со страницы оплаты: уведомление банка может прийти с задержкой — подождём
@@ -313,7 +335,7 @@ VIEWS.client = {
   orders: async () => {
     const { orders } = await api('GET', '/client/orders');
     return list(orders, (o) => orderCard(o, `
-      ${!o.buyer_paid && o.status !== 'cancelled' ? `<a class="btn sun sm" href="/t/${esc(o.code)}">Оплатить ${money(S.cfg.price_buyer)}</a>` : ''}`),
+      ${S.cfg.online_payments && !o.buyer_paid && o.status !== 'cancelled' ? `<a class="btn sun sm" href="/t/${esc(o.code)}">Оплатить ${money(S.cfg.price_buyer)}</a>` : ''}`),
     'Посылок на ваш номер пока нет');
   },
   support: VIEWS.common.support,
@@ -330,7 +352,7 @@ VIEWS.courier = {
   mine: async () => {
     const { mine } = await courierLoad();
     return list(mine, (o) => orderCard(o, `
-      ${o.status === 'assigned' ? `<a class="btn ghost sm" href="tel:+${esc(o.seller_phone)}">Позвонить продавцу</a><button class="btn sm" data-act="pickup" data-id="${o.id}">Забрал у продавца</button>` : ''}
+      ${o.status === 'assigned' ? `<a class="btn ghost sm" href="tel:+${esc(o.seller_phone)}">Позвонить продавцу</a><button class="btn sm" data-act="pickup" data-id="${o.id}" data-paid="${o.seller_paid ? 1 : 0}">Забрал у продавца</button>` : ''}
       ${o.status === 'picked_up' ? `<button class="btn sun sm" data-act="deliverDlg" data-id="${o.id}" data-paid="${o.buyer_paid ? 1 : 0}">Вручить</button>` : ''}
       <a class="btn ghost sm" target="_blank" rel="noopener" href="https://2gis.kz/astana/search/${encodeURIComponent(o.address)}">Маршрут 2ГИС</a>`), 'Активных доставок нет');
   },
@@ -346,7 +368,17 @@ VIEWS.courier = {
   support: VIEWS.common.support,
 };
 actions.take = async (d) => { await api('POST', `/courier/orders/${d.id}/take`); toast('Заказ ваш'); go('mine'); };
-actions.pickup = async (d) => { await api('POST', `/courier/orders/${d.id}/pickup`); reload(); };
+actions.pickup = async (d) => {
+  if (d.paid === '1') { await api('POST', `/courier/orders/${d.id}/pickup`); return reload(); }
+  // Продавец платит курьеру наличными при заборе
+  openDialog(`<div class="row between"><h3 style="margin:0">Забрать посылку</h3><button class="btn ghost sm" data-close>✕</button></div>
+  <form data-form="pickup" data-id="${d.id}" class="stack">
+    <p class="small muted" style="margin:0">Продавец оплачивает доставку при передаче посылки.</p>
+    <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="seller_cash_received" required style="width:auto;min-height:0"> Получил ${money(S.cfg.price_seller)} от продавца наличными</label>
+    <div class="err"></div><button class="btn sun">Подтвердить — посылка у меня</button>
+  </form>`);
+};
+forms.pickup = async (f, form) => { await api('POST', `/courier/orders/${form.dataset.id}/pickup`, { seller_cash_received: !!f.seller_cash_received }); $dlg.close(); toast('Посылка у вас — везите покупателю'); reload(); };
 actions.deliverDlg = (d) => openDialog(`<div class="row between"><h3 style="margin:0">Вручение посылки</h3><button class="btn ghost sm" data-close>✕</button></div>
   <form data-form="deliver" data-id="${d.id}" class="stack">
     <p class="small muted" style="margin:0">Отдайте посылку лично получателю — имя и телефон указаны в заказе.</p>

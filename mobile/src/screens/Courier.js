@@ -1,7 +1,7 @@
 import React from 'react';
 import { Linking, Switch, View } from 'react-native';
 import { api, money } from '../api';
-import { Empty, OrderCard, Scroll, alertError, useLoad } from '../common';
+import { Empty, OrderCard, Scroll, alertError, confirm, useLoad } from '../common';
 import { useNav } from '../nav';
 import { Button, Card, Err, H, Input, T, s } from '../ui';
 
@@ -19,9 +19,16 @@ export function Available() {
 }
 
 export function Mine() {
-  const { push } = useNav();
+  const { push, cfg } = useNav();
   const { data, error, refreshing, load } = useCourier();
-  const pickup = (o) => async () => { try { await api('POST', `/courier/orders/${o.id}/pickup`); load(); } catch (e) { alertError(e); } };
+  // Продавец не платил онлайн — курьер получает 750 ₸ наличными при заборе
+  const pickup = (o) => async () => {
+    try {
+      if (!o.seller_paid && !(await confirm('Забрать посылку', `Вы получили ${money(cfg.price_seller)} от продавца наличными?`))) return;
+      await api('POST', `/courier/orders/${o.id}/pickup`, { seller_cash_received: !o.seller_paid });
+      load();
+    } catch (e) { alertError(e); }
+  };
   return (
     <Scroll refreshing={refreshing} onRefresh={load} error={error}>
       {data && !data.mine.length ? <Empty>Активных доставок нет</Empty> : null}

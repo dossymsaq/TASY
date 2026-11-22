@@ -29,7 +29,7 @@ const root = document.getElementById('root');
 
 async function load() {
   try {
-    const { order: o, price_buyer } = await api('GET', '/track/' + encodeURIComponent(code));
+    const { order: o, price_buyer, online_payments } = await api('GET', '/track/' + encodeURIComponent(code));
     const shop = o.seller.shop_name || o.seller.name;
     root.innerHTML = `
       <div class="stack">
@@ -44,9 +44,9 @@ async function load() {
         ${o.status === 'cancelled' ? '' : o.buyer_paid ? `
           <div class="card"><span class="paid">✓ Доставка оплачена</span> — ${money(price_buyer)}</div>` : `
           <div class="card stack">
-            <h3 style="margin:0">Оплатите доставку: ${money(price_buyer)}</h3>
-            <p class="muted small" style="margin:0">Оплатить можно сейчас онлайн или наличными курьеру при получении.</p>
-            <button class="btn sun block" id="pay">Оплатить ${money(price_buyer)}</button>
+            <h3 style="margin:0">Доставка: ${money(price_buyer)}</h3>
+            ${online_payments ? `<p class="muted small" style="margin:0">Оплатить можно сейчас онлайн или наличными курьеру при получении.</p>
+            <button class="btn sun block" id="pay">Оплатить ${money(price_buyer)}</button>` : '<p class="muted small" style="margin:0">Оплата наличными курьеру при получении посылки.</p>'}
           </div>`}
 
         <div class="card"><h3>История</h3>${timeline(o.events)}</div>

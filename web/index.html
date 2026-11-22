@@ -243,8 +243,8 @@
 </section>
 
 <div class="l-marquee" aria-hidden="true"><div class="l-track">
-  <ul><li>750 ₸ по Астане</li><li>Свои курьеры</li><li>Посылки до 2 кг</li><li>Отслеживание онлайн</li><li>Оплата картой или наличными</li><li>Вручение лично в руки</li></ul>
-  <ul><li>750 ₸ по Астане</li><li>Свои курьеры</li><li>Посылки до 2 кг</li><li>Отслеживание онлайн</li><li>Оплата картой или наличными</li><li>Вручение лично в руки</li></ul>
+  <ul><li>750 ₸ по Астане</li><li>Свои курьеры</li><li>Посылки до 2 кг</li><li>Отслеживание онлайн</li><li data-pay-chip>Оплата картой или наличными</li><li>Вручение лично в руки</li></ul>
+  <ul><li>750 ₸ по Астане</li><li>Свои курьеры</li><li>Посылки до 2 кг</li><li>Отслеживание онлайн</li><li data-pay-chip>Оплата картой или наличными</li><li>Вручение лично в руки</li></ul>
 </div></div>
 <div class="l-marquee alt" aria-hidden="true"><div class="l-track">
   <ul><li>Есиль</li><li>Алматы</li><li>Байконур</li><li>Сарыарка</li><li>Нура</li><li>Левый берег</li><li>Правый берег</li></ul>
@@ -259,7 +259,7 @@
     </div>
     <div class="l-steps">
       <div class="l-step reveal from-below" style="transition-delay:.05s"><div class="n"></div><h3>Заказ</h3><p>Продавец указывает адрес и имя покупателя, вес — до 2 кг.</p></div>
-      <div class="l-step reveal from-below" style="transition-delay:.15s"><div class="n"></div><h3>Ссылка покупателю</h3><p>Покупатель видит статус посылки и может оплатить доставку онлайн.</p></div>
+      <div class="l-step reveal from-below" style="transition-delay:.15s"><div class="n"></div><h3>Ссылка покупателю</h3><p data-pay-step>Покупатель видит статус посылки и может оплатить доставку онлайн.</p></div>
       <div class="l-step reveal from-below" style="transition-delay:.25s"><div class="n"></div><h3>Курьер в пути</h3><p>Наш курьер забирает посылку у продавца и везёт по городу.</p></div>
       <div class="l-step reveal from-below" style="transition-delay:.35s"><div class="n"></div><h3>Вручение</h3><p>Курьер отдаёт посылку лично в руки. Статус обновляется сразу.</p></div>
     </div>
@@ -276,7 +276,7 @@
       <ul class="reveal from-right">
         <li><span>Вес посылки</span><b>до 2 кг</b></li>
         <li><span>Что возим</span><b>одежда, косметика, цветы, документы</b></li>
-        <li><span>Оплата</span><b>картой онлайн или наличными курьеру</b></li>
+        <li><span>Оплата</span><b data-pay-text>картой онлайн или наличными курьеру</b></li>
         <li><span>Поддержка</span><b>чат в кабинете и приложении</b></li>
       </ul>
     </div>
@@ -294,7 +294,7 @@
       <article class="reveal from-left"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
         <div><h3>Статус в реальном времени</h3><p>Продавец и покупатель видят, где посылка: принята, курьер в пути, вручена.</p></div></article>
       <article class="reveal from-right"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/></svg></div>
-        <div><h3>Удобная оплата</h3><p>Картой онлайн по ссылке или наличными курьеру при получении.</p></div></article>
+        <div><h3>Удобная оплата</h3><p data-pay-text-long>Картой онлайн по ссылке или наличными курьеру при получении.</p></div></article>
     </div>
   </div></section>
 
@@ -367,5 +367,16 @@
 })();
 </script>
 <script src="/install.js"></script>
+<script>
+// Мягкий старт (без онлайн-оплаты): тексты об оплате — только наличные
+fetch('/api/config').then((r) => r.json()).then((c) => {
+  if (c.online_payments !== false) return;
+  const set = (sel, t) => document.querySelectorAll(sel).forEach((el) => { el.textContent = t; });
+  set('[data-pay-text]', 'наличными курьеру');
+  set('[data-pay-text-long]', 'Наличными курьеру — без карт и переводов.');
+  set('[data-pay-chip]', 'Оплата наличными курьеру');
+  set('[data-pay-step]', 'Покупатель видит, где его посылка, и оплачивает доставку курьеру при получении.');
+}).catch(() => {});
+</script>
 </body>
 </html>

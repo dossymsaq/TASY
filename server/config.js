@@ -16,6 +16,13 @@ module.exports = {
   // Продавцы работают по договору: самостоятельная регистрация продавца — это заявка,
   // владелец одобряет её в кабинете. SELLER_APPROVAL=0 — открывать доступ сразу.
   SELLER_APPROVAL: process.env.SELLER_APPROVAL !== '0',
+  // Режим запуска. LAUNCH_MODE=soft — «мягкий старт» без договоров с банком и SMS-сервисом:
+  //   оплата только наличными курьеру (продавец — при заборе, покупатель — при получении),
+  //   вход по паролю, клиенты отслеживают посылку по ссылке без входа.
+  // Отдельно: ONLINE_PAYMENTS=0/1, SMS_LOGIN=0/1.
+  LAUNCH_MODE: process.env.LAUNCH_MODE === 'soft' ? 'soft' : 'full',
+  get ONLINE_PAYMENTS() { return process.env.ONLINE_PAYMENTS ? process.env.ONLINE_PAYMENTS === '1' : this.LAUNCH_MODE !== 'soft'; },
+  get SMS_LOGIN() { return process.env.SMS_LOGIN ? process.env.SMS_LOGIN === '1' : this.LAUNCH_MODE !== 'soft'; },
   CITY: 'Астана',
   PRICE_SELLER: 750, // платит продавец (наш клиент)
   PRICE_BUYER: 750,  // платит покупатель продавца
