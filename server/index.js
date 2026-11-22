@@ -63,12 +63,12 @@ function setStatus(order, status, note, actorId, extra = {}) {
   statusSms(order.id, status, actorId);
 }
 
-// Уведомить человека: push, если у него установлено приложение, иначе SMS.
-// smsAlways — SMS уходит в любом случае (код получения: push может быть отключён в настройках телефона).
-async function notifyPerson(phone, { title, body, smsText, data = {}, smsAlways = false }) {
+// Уведомить человека: push, если у него установлено приложение.
+// SMS о статусах заказа отключены по умолчанию; SMS_STATUS=1 включает их для тех, у кого нет приложения.
+async function notifyPerson(phone, { title, body, smsText, data = {} }) {
   const u = db.prepare('SELECT id FROM users WHERE phone = ? AND active = 1').get(phone);
   const pushed = u ? await push.sendToUsers([u.id], { title, body, data }, phone) : 0;
-  if (smsText && (smsAlways || !pushed)) sms.notify(phone, smsText);
+  if (smsText && cfg.SMS_STATUS && !pushed) sms.notify(phone, smsText);
 }
 const activeIds = (role) => db.prepare('SELECT id FROM users WHERE role = ? AND active = 1').all(role).map((r) => r.id);
 
@@ -95,7 +95,7 @@ function statusSms(orderId, status, actorId = null) {
         toSeller({ title: `Курьер едет за заказом ${o.code}`, body: `${courier?.name || 'Курьер'} заберёт посылку для ${o.buyer_name}.`, smsText: `Курьер ${courier?.name || ''} едет за заказом ${o.code} (${o.buyer_name}).` });
         toCourier({ title: `Вам назначен заказ ${o.code}`, body: `${o.pickup_address} → ${o.address}` });
       },
-      picked_up: () => toBuyer({ title: 'Курьер везёт вашу посылку', body: `${courier?.name || 'Курьер'} в пути. Код получения: ${o.confirm_code}`, smsText: `Курьер ${courier?.name || ''} везёт ваш заказ. Код получения: ${o.confirm_code} — назовите его курьеру. ${link}`, smsAlways: true }),
+      picked_up: () => toBuyer({ title: 'Курьер везёт вашу посылку', body: `${courier?.name || 'Курьер'} уже в пути.`, smsText: `Курьер ${courier?.name || ''} везёт ваш заказ «${o.item_desc}». ${link}` }),
       delivered: () => toSeller({ title: `Заказ ${o.code} доставлен`, body: `Посылка вручена: ${o.buyer_name}.`, smsText: `Заказ ${o.code} вручён покупателю ${o.buyer_name}.` }),
       cancelled: () => {
         toBuyer({ title: 'Доставка отменена', body: `Заказ ${o.code} от ${shop} отменён.`, smsText: `Доставка заказа ${o.code} от ${shop} отменена.` });
@@ -111,12 +111,13 @@ function getOrder(id) {
   if (!o) fail(404, 'Заказ не найден');
   return o;
 }
-function fullOrder(o, { hideConfirm = true } = {}) {
+// confirm_code (старый код получения) больше не используется и наружу не отдаётся
+function fullOrder(o) {
   const seller = db.prepare('SELECT name, shop_name, phone FROM users WHERE id = ?').get(o.seller_id);
   const courier = o.courier_id ? db.prepare('SELECT name, phone FROM users WHERE id = ?').get(o.courier_id) : null;
   const events = db.prepare('SELECT status, note, created_at FROM order_events WHERE order_id = ? ORDER BY id').all(o.id);
   const r = { ...o, seller_paid: !!o.seller_paid, buyer_paid: !!o.buyer_paid, status_text: cfg.STATUSES[o.status], seller, courier, events };
-  if (hideConfirm) delete r.confirm_code;
+  delete r.confirm_code;
   return r;
 }
 
@@ -378,8 +379,7 @@ function byCode(code) {
   return o;
 }
 api.get('/track/:code', (req, res) => {
-  const o = fullOrder(byCode(req.params.code), { hideConfirm: false });
-  // Покупатель видит код подтверждения — его он называет курьеру при получении
+  const o = fullOrder(byCode(req.params.code));
   delete o.seller.phone;
   res.json({ order: o, price_buyer: cfg.PRICE_BUYER });
 });
@@ -452,7 +452,7 @@ api.post('/seller/orders/:id/cancel', auth('seller'), async (req, res) => {
 // ---------- покупатель (клиент) ----------
 api.get('/client/orders', auth('client'), (req, res) => {
   const rows = db.prepare('SELECT * FROM orders WHERE buyer_phone = ? ORDER BY id DESC LIMIT 200').all(req.user.phone);
-  res.json({ orders: rows.map((o) => fullOrder(o, { hideConfirm: false })) });
+  res.json({ orders: rows.map((o) => fullOrder(o)) });
 });
 
 // ---------- курьер ----------
@@ -520,7 +520,6 @@ api.post('/courier/orders/:id/pickup', auth('courier'), (req, res) => {
 });
 api.post('/courier/orders/:id/deliver', auth('courier'), async (req, res) => {
   const o = courierOrder(req, ['picked_up']);
-  if (String(req.body?.confirm_code || '').trim() !== o.confirm_code) fail(400, 'Неверный код подтверждения от покупателя');
   if (!o.buyer_paid) {
     if (!req.body?.cash_received) fail(400, `Покупатель не оплатил онлайн — получите ${cfg.PRICE_BUYER} ₸ наличными`);
     payCash(o, 'buyer', req.user.id);

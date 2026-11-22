@@ -41,12 +41,11 @@ export function Mine() {
 
 export function Deliver({ order, onDone }) {
   const { cfg, pop } = useNav();
-  const [code, setCode] = React.useState('');
   const [cash, setCash] = React.useState(false);
   const [err, setErr] = React.useState('');
   const submit = async () => {
     setErr('');
-    try { await api('POST', `/courier/orders/${order.id}/deliver`, { confirm_code: code, cash_received: cash }); onDone?.(); pop(); }
+    try { await api('POST', `/courier/orders/${order.id}/deliver`, { cash_received: cash }); onDone?.(); pop(); }
     catch (e) { setErr(e.message); }
   };
   return (
@@ -54,7 +53,7 @@ export function Deliver({ order, onDone }) {
       <Card style={{ gap: 12 }}>
         <H>Заказ {order.code}</H>
         <T>{order.buyer_name} · {order.address}</T>
-        <Input label="Код получения от покупателя" value={code} onChangeText={setCode} keyboardType="number-pad" maxLength={4} autoFocus style={{ fontSize: 28, letterSpacing: 8, textAlign: 'center' }} />
+        <T muted size={14}>Отдайте посылку лично получателю — имя и телефон указаны в заказе.</T>
         {order.buyer_paid ? <T bold color="#1f9d55">Покупатель оплатил онлайн</T> : (
           <View style={s.between}><T style={{ flex: 1 }}>Получил {money(cfg.price_buyer)} наличными</T><Switch value={cash} onValueChange={setCash} /></View>
         )}

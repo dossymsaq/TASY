@@ -54,7 +54,7 @@ export function Shared({ order }) {
     <Scroll>
       <Card style={{ gap: 10 }}>
         <H>Отправьте ссылку покупателю</H>
-        <T muted>По ссылке покупатель оплатит {money(cfg.price_buyer)}, увидит статус и код получения.</T>
+        <T muted>По ссылке покупатель оплатит {money(cfg.price_buyer)}, и увидит, где его посылка.</T>
         <T selectable bold>{trackLink(order)}</T>
         <Button title="WhatsApp" onPress={() => whatsapp(order, user, cfg)} />
         <Button kind="ghost" title="Поделиться…" onPress={() => shareOrder(order, user, cfg)} />

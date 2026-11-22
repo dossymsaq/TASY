@@ -7,6 +7,7 @@ const path = require('node:path');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jetkiz-'));
 process.env.DB_FILE = path.join(tmp, 'test.sqlite');
 process.env.PUSH_MODE = 'log';
+process.env.SMS_STATUS = '1'; // проверяем и SMS о статусах (в работе они выключены по умолчанию)
 const app = require('../index');
 
 let server, base;
@@ -38,7 +39,6 @@ test('полный цикл доставки: 750 ₸ продавец + 750 ₸
   assert.equal(r.status, 201);
   const o = r.data.order;
   assert.equal(o.status, 'new');
-  assert.equal(o.confirm_code, undefined, 'продавец не видит код подтверждения');
 
   r = await call('POST', `/courier/orders/${o.id}/take`, null, courier);
   assert.equal(r.status, 409, 'нельзя взять неоплаченный заказ');
@@ -53,7 +53,7 @@ test('полный цикл доставки: 750 ₸ продавец + 750 ₸
   assert.equal((await call('GET', `/track/${o.code}`)).data.order.status, 'ready');
 
   const track = (await call('GET', `/track/${o.code}`)).data.order;
-  assert.match(track.confirm_code, /^\d{4}$/);
+  assert.equal(track.confirm_code, undefined, 'кода получения больше нет');
   r = await call('POST', `/track/${o.code}/pay`);
   assert.equal(r.status, 200);
   await payOnline(r.data);
@@ -65,8 +65,7 @@ test('полный цикл доставки: 750 ₸ продавец + 750 ₸
 
   assert.equal((await call('POST', `/courier/orders/${o.id}/take`, null, courier)).status, 200);
   assert.equal((await call('POST', `/courier/orders/${o.id}/pickup`, null, courier)).status, 200);
-  assert.equal((await call('POST', `/courier/orders/${o.id}/deliver`, { confirm_code: '0000' }, courier)).status, 400);
-  assert.equal((await call('POST', `/courier/orders/${o.id}/deliver`, { confirm_code: track.confirm_code }, courier)).status, 200);
+  assert.equal((await call('POST', `/courier/orders/${o.id}/deliver`, {}, courier)).status, 200, 'курьер вручает без кода');
 
   const stats = (await call('GET', '/admin/stats', null, admin)).data;
   assert.equal(stats.revenue, 1500);
@@ -83,12 +82,11 @@ test('оплата наличными курьеру и отмена с возв
   await payOnline(ra);
   const a = (await call('GET', `/track/${ra.order.code}`)).data.order;
   assert.equal(a.status, 'ready');
-  const code = (await call('GET', `/track/${a.code}`)).data.order.confirm_code;
   await call('POST', `/courier/orders/${a.id}/take`, null, courier);
   await call('POST', `/courier/orders/${a.id}/pickup`, null, courier);
-  let r = await call('POST', `/courier/orders/${a.id}/deliver`, { confirm_code: code }, courier);
+  let r = await call('POST', `/courier/orders/${a.id}/deliver`, {}, courier);
   assert.equal(r.status, 400, 'без оплаты покупателя нельзя завершить');
-  r = await call('POST', `/courier/orders/${a.id}/deliver`, { confirm_code: code, cash_received: true }, courier);
+  r = await call('POST', `/courier/orders/${a.id}/deliver`, { cash_received: true }, courier);
   assert.equal(r.status, 200);
 
   const rb = (await call('POST', '/seller/orders', base0, seller)).data;
@@ -165,8 +163,8 @@ test('SMS-уведомления о статусах уходят покупат
   const { notifications } = (await call('GET', '/admin/notifications', null, admin)).data;
   const toBuyer = notifications.filter((n) => n.phone === buyer).map((n) => n.text);
   assert.ok(toBuyer.some((t) => t.includes(`/t/${o.code}`)), 'покупатель получил ссылку отслеживания');
-  const code = (await call('GET', `/track/${o.code}`)).data.order.confirm_code;
-  assert.ok(toBuyer.some((t) => t.includes(`Код получения: ${code}`)), 'покупатель получил код получения');
+  assert.ok(toBuyer.some((t) => t.includes('везёт ваш заказ')), 'покупатель узнал, что курьер в пути');
+  assert.ok(!toBuyer.some((t) => /Код получения/.test(t)), 'кода получения в SMS нет');
   assert.ok(notifications.some((n) => n.phone === '77000000004' && n.text.includes(o.code)), 'продавец получил уведомление');
   assert.ok(notifications.filter((n) => n.kind === 'otp').every((n) => !/\d{4}/.test(n.text)), 'коды входа не хранятся в журнале');
   assert.equal((await call('GET', '/admin/notifications', null, seller)).status, 403);
@@ -242,8 +240,7 @@ test('касса курьеров: наличные числятся за кур
   await payOnline(ro);
   await call('POST', `/courier/orders/${ro.order.id}/take`, null, courier);
   await call('POST', `/courier/orders/${ro.order.id}/pickup`, null, courier);
-  const code = (await call('GET', `/track/${ro.order.code}`)).data.order.confirm_code;
-  await call('POST', `/courier/orders/${ro.order.id}/deliver`, { confirm_code: code, cash_received: true }, courier);
+  await call('POST', `/courier/orders/${ro.order.id}/deliver`, { cash_received: true }, courier);
 
   const mine = (await call('GET', '/courier/cash', null, courier)).data;
   assert.equal(mine.on_hand, before + 750);

@@ -271,7 +271,7 @@ function showShare(o) {
   const link = `${location.origin}/t/${o.code}`;
   const text = shareText(o);
   openDialog(`<div class="row between"><h3 style="margin:0">Отправьте ссылку покупателю</h3><button class="btn ghost sm" data-close>✕</button></div>
-    <p class="muted small">По ссылке покупатель оплатит свои ${money(S.cfg.price_buyer)}, увидит статус и код получения.</p>
+    <p class="muted small">По ссылке покупатель оплатит свои ${money(S.cfg.price_buyer)} и увидит, где его посылка.</p>
     <input value="${esc(link)}" readonly onclick="this.select()">
     <div class="row" style="margin-top:12px">
       <a class="btn" target="_blank" rel="noopener" href="https://wa.me/${esc(o.buyer_phone)}?text=${encodeURIComponent(text)}">WhatsApp</a>
@@ -286,7 +286,6 @@ VIEWS.client = {
   orders: async () => {
     const { orders } = await api('GET', '/client/orders');
     return list(orders, (o) => orderCard(o, `
-      ${!['delivered', 'cancelled'].includes(o.status) ? `<span class="badge">Код получения: <b>${esc(o.confirm_code)}</b></span>` : ''}
       ${!o.buyer_paid && o.status !== 'cancelled' ? `<a class="btn sun sm" href="/t/${esc(o.code)}">Оплатить ${money(S.cfg.price_buyer)}</a>` : ''}`),
     'Посылок на ваш номер пока нет');
   },
@@ -323,8 +322,8 @@ actions.take = async (d) => { await api('POST', `/courier/orders/${d.id}/take`);
 actions.pickup = async (d) => { await api('POST', `/courier/orders/${d.id}/pickup`); reload(); };
 actions.deliverDlg = (d) => openDialog(`<div class="row between"><h3 style="margin:0">Вручение посылки</h3><button class="btn ghost sm" data-close>✕</button></div>
   <form data-form="deliver" data-id="${d.id}" class="stack">
-    <div><label>Код получения от покупателя</label><input name="confirm_code" inputmode="numeric" maxlength="4" required autofocus></div>
-    ${d.paid === '1' ? '<p class="paid">Покупатель оплатил онлайн</p>' : `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="cash_received" style="width:auto;min-height:0"> Получил ${money(S.cfg.price_buyer)} наличными</label>`}
+    <p class="small muted" style="margin:0">Отдайте посылку лично получателю — имя и телефон указаны в заказе.</p>
+    ${d.paid === '1' ? '<p class="paid">Покупатель оплатил онлайн</p>' : `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="cash_received" required style="width:auto;min-height:0"> Получил ${money(S.cfg.price_buyer)} наличными</label>`}
     <div class="err"></div><button class="btn sun">Подтвердить вручение</button>
   </form>`);
 forms.deliver = async (f, form) => { await api('POST', `/courier/orders/${form.dataset.id}/deliver`, { ...f, cash_received: !!f.cash_received }); $dlg.close(); toast('Доставлено!'); reload(); };

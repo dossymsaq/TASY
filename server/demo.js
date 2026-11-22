@@ -26,8 +26,7 @@ module.exports = async function seedDemoOrders(base) {
     await api('POST', `/courier/orders/${o.id}/take`, null, courier);
     await api('POST', `/courier/orders/${o.id}/pickup`, null, courier);
   }
-  const code = (await api('GET', `/track/${b.code}`)).order.confirm_code;
-  await api('POST', `/courier/orders/${b.id}/deliver`, { confirm_code: code, cash_received: true }, courier);
+  await api('POST', `/courier/orders/${b.id}/deliver`, { cash_received: true }, courier);
   await api('POST', '/tickets', { subject: 'Когда привезут?', message: 'Здравствуйте! Подскажите, во сколько ждать курьера?', contact_name: 'Асель', contact_phone: '77000000005', order_code: a.code });
   console.log(`Демо-заказы созданы. Страница покупателя: /t/${a.code}`);
 };

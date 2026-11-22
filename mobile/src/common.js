@@ -39,7 +39,7 @@ export function confirm(title, message) {
   ]));
 }
 
-export function OrderCard({ o, children, showConfirm }) {
+export function OrderCard({ o, children }) {
   const t = useTheme();
   const [open, setOpen] = React.useState(false);
   const Paid = ({ ok }) => <T color={ok ? t.ok : t.warn} bold size={14}>{ok ? 'оплачено' : 'не оплачено'}</T>;
@@ -53,12 +53,6 @@ export function OrderCard({ o, children, showConfirm }) {
       {o.comment ? <T size={14} muted>💬 {o.comment}</T> : null}
       <View style={s.row}><T size={14}>Продавец:</T><Paid ok={o.seller_paid} /><T size={14}>Покупатель:</T><Paid ok={o.buyer_paid} /></View>
       {o.courier ? <T size={14}>🛵 {o.courier.name} · {phone(o.courier.phone)}</T> : null}
-      {showConfirm && !['delivered', 'cancelled'].includes(o.status) ? (
-        <View style={{ backgroundColor: '#fff1c7', borderRadius: 10, padding: 10, alignItems: 'center' }}>
-          <T size={13} color="#7a5600">Код получения — назовите курьеру</T>
-          <T bold size={30} color="#14212b" style={{ letterSpacing: 6 }}>{o.confirm_code}</T>
-        </View>
-      ) : null}
       <T size={14} color={t.brand} onPress={() => setOpen(!open)}>{open ? '▾ Скрыть историю' : '▸ История'}</T>
       {open ? o.events.map((e, i) => <T key={i} size={13} muted>{date(e.created_at)} — {e.note || e.status}</T>) : null}
       {children ? <View style={[s.row, { marginTop: 6 }]}>{children}</View> : null}

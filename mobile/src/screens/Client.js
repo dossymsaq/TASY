@@ -12,7 +12,7 @@ export function ClientOrders() {
     <Scroll refreshing={refreshing} onRefresh={load} error={error}>
       {data && !data.orders.length ? <Empty>Посылок на ваш номер пока нет. Когда продавец оформит доставку, она появится здесь.</Empty> : null}
       {data?.orders.map((o) => (
-        <OrderCard key={o.id} o={o} showConfirm>
+        <OrderCard key={o.id} o={o}>
           {!o.buyer_paid && o.status !== 'cancelled' ? <Button small kind="sun" title={`Оплатить доставку ${money(cfg.price_buyer)}`} onPress={pay(o)} /> : null}
         </OrderCard>
       ))}

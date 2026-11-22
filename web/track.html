@@ -25,7 +25,6 @@ async function load() {
   try {
     const { order: o, price_buyer } = await api('GET', '/track/' + encodeURIComponent(code));
     const shop = o.seller.shop_name || o.seller.name;
-    const active = !['delivered', 'cancelled'].includes(o.status);
     root.innerHTML = `
       <div class="stack">
         <div class="card stack">
@@ -43,13 +42,6 @@ async function load() {
             <p class="muted small" style="margin:0">Продавец уже оплатил свою часть. Вы можете оплатить сейчас онлайн или наличными курьеру при получении.</p>
             <button class="btn sun block" id="pay">Оплатить ${money(price_buyer)}</button>
           </div>`}
-
-        ${active ? `
-          <div class="card stack">
-            <h3 style="margin:0">Код получения</h3>
-            <div class="big-code">${esc(o.confirm_code)}</div>
-            <p class="muted small" style="margin:0;text-align:center">Назовите этот код курьеру только когда получите посылку.</p>
-          </div>` : ''}
 
         <div class="card"><h3>История</h3>${timeline(o.events)}</div>
 
