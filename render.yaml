@@ -1,0 +1,30 @@
+# Временная демо-версия на Render (бесплатный тариф).
+# Внимание: на бесплатном тарифе диск не сохраняется — при перезапуске база создаётся заново
+# с демо-данными; после 15 минут без посетителей сервер «засыпает», первое открытие ~1 минута.
+# Для настоящей работы используйте VPS (см. deploy/README.md).
+services:
+  - type: web
+    name: jetkiz750
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: claude/sleepy-thompson-5m7hel
+    rootDir: server
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DEMO_ORDERS
+        value: "1"
+      - key: SMS_MODE
+        value: mock
+      - key: PAYMENT_MODE
+        value: mock
+      - key: PUSH_MODE
+        value: log
+      - key: OTP_SECRET
+        generateValue: true

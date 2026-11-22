@@ -648,7 +648,12 @@ if (require.main === module) {
   if (process.env.NODE_ENV === 'production' && cfg.OTP_SECRET === 'dev-otp-secret') console.warn('ВНИМАНИЕ: задайте OTP_SECRET — случайную строку для защиты SMS-кодов');
   if (process.env.NODE_ENV === 'production' && payments.MODE === 'mock') console.warn('ВНИМАНИЕ: платежи в тестовом режиме (PAYMENT_MODE=mock) — любой может отметить заказ оплаченным');
   if (sms.MODE === 'mock') console.log('SMS в тестовом режиме: сообщения пишутся в консоль и в журнал (Админ → Уведомления)');
-  const server = app.listen(cfg.PORT, process.env.HOST || undefined, () => console.log(`Жеткіз 750 запущен: http://localhost:${cfg.PORT}`));
+  const server = app.listen(cfg.PORT, process.env.HOST || undefined, () => {
+    console.log(`Жеткіз 750 запущен: http://localhost:${cfg.PORT}`);
+    if (process.env.DEMO_ORDERS === '1' && payments.MODE === 'mock') {
+      require('./demo')(`http://127.0.0.1:${cfg.PORT}`).catch((e) => console.error('Демо-заказы не созданы:', e.message));
+    }
+  });
   // Корректная остановка (systemd посылает SIGTERM): дождаться текущих запросов и закрыть базу
   const stop = () => { server.close(() => { db.close(); process.exit(0); }); setTimeout(() => process.exit(0), 10000).unref(); };
   process.on('SIGTERM', stop); process.on('SIGINT', stop);
