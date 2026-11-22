@@ -7,7 +7,8 @@ const path = require('node:path');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jetkiz-'));
 process.env.DB_FILE = path.join(tmp, 'test.sqlite');
 process.env.PUSH_MODE = 'log';
-process.env.SMS_STATUS = '1'; // проверяем и SMS о статусах (в работе они выключены по умолчанию)
+process.env.SMS_STATUS = '1';
+process.env.SELLER_SIGNUP = '1'; // здесь проверяем и самостоятельные заявки продавцов // проверяем и SMS о статусах (в работе они выключены по умолчанию)
 const app = require('../index');
 
 let server, base;

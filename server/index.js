@@ -246,6 +246,7 @@ api.get('/config', (req, res) => res.json({
   price_total: cfg.PRICE_SELLER + cfg.PRICE_BUYER, max_weight_kg: cfg.MAX_WEIGHT_KG,
   districts: cfg.DISTRICTS, statuses: cfg.STATUSES, payment_mode: payments.MODE, sms_mode: sms.MODE,
   demo_hints: process.env.NODE_ENV !== 'production', // подсказки с демо-аккаунтами — не на рабочем сервере
+  seller_signup: cfg.SELLER_SIGNUP,
   launch_mode: cfg.LAUNCH_MODE, online_payments: cfg.ONLINE_PAYMENTS, sms_login: cfg.SMS_LOGIN, client_accounts: cfg.SMS_LOGIN,
 }));
 
@@ -277,6 +278,7 @@ function approvedSeller(req, res, next) {
 api.post('/auth/register', (req, res) => {
   const b = req.body || {};
   if (b.role !== 'seller') fail(400, 'Клиенты входят по SMS-коду');
+  if (!cfg.SELLER_SIGNUP) fail(403, 'Аккаунты продавцов выдаёт владелец сервиса. Оставьте заявку «Подключить магазин» — мы позвоним.');
   const user = createAccount(b, normPhone(b.phone), b.password);
   res.status(201).json({ token: newSession(user.id), user: publicUser(user) });
 });
@@ -320,6 +322,7 @@ api.post('/auth/otp/verify', smsLoginOn, (req, res) => {
   let user = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
   const isNew = !user;
   if (isNew) {
+    if (b.role === 'seller' && !cfg.SELLER_SIGNUP) fail(403, 'Этот номер не подключён. Аккаунты продавцов выдаёт владелец сервиса.');
     if (!b.name) return res.json({ need_profile: true });
     user = createAccount(b, phone, null);
   }
@@ -615,8 +618,10 @@ api.post('/admin/users', auth('admin'), (req, res) => {
   const phone = normPhone(b.phone);
   if (String(b.password || '').length < 6) fail(400, 'Пароль — минимум 6 символов');
   if (db.prepare('SELECT 1 FROM users WHERE phone = ?').get(phone)) fail(409, 'Телефон уже зарегистрирован');
+  const shop = b.role === 'seller' ? str(b.shop_name, 'Название магазина', 100) : null;
+  const pickup = b.role === 'seller' ? str(b.pickup_address, 'Адрес забора', 300) : null;
   const r = db.prepare('INSERT INTO users (role,name,phone,shop_name,pickup_address,password_hash) VALUES (?,?,?,?,?,?)')
-    .run(b.role, str(b.name, 'Имя', 100), phone, b.shop_name || null, b.pickup_address || null, hashPassword(String(b.password)));
+    .run(b.role, str(b.name, 'Имя', 100), phone, shop, pickup, hashPassword(String(b.password)));
   res.status(201).json({ user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid)) });
 });
 // Владелец одобряет заявку продавца (после подписания договора)
@@ -630,8 +635,21 @@ api.post('/admin/users/:id/approve', auth('admin'), (req, res) => {
 api.patch('/admin/users/:id', auth('admin'), (req, res) => {
   const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
   if (!u) fail(404, 'Пользователь не найден');
-  if (u.id === req.user.id) fail(400, 'Нельзя изменить свой аккаунт');
+  const b = req.body || {};
+  // Новый пароль (владелец выдаёт или восстанавливает доступ). Все старые входы этого человека закрываются.
+  if (b.password !== undefined) {
+    if (String(b.password).length < 6) fail(400, 'Пароль — минимум 6 символов');
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(String(b.password)), u.id);
+    if (u.id !== req.user.id) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
+  }
+  if (b.name !== undefined || b.shop_name !== undefined || b.pickup_address !== undefined) {
+    db.prepare('UPDATE users SET name = ?, shop_name = ?, pickup_address = ? WHERE id = ?').run(
+      b.name !== undefined ? str(b.name, 'Имя', 100) : u.name,
+      b.shop_name !== undefined ? (String(b.shop_name).trim() || null) : u.shop_name,
+      b.pickup_address !== undefined ? (String(b.pickup_address).trim() || null) : u.pickup_address, u.id);
+  }
   if (req.body?.active !== undefined) {
+    if (u.id === req.user.id) fail(400, 'Нельзя заблокировать свой аккаунт');
     db.prepare('UPDATE users SET active = ? WHERE id = ?').run(req.body.active ? 1 : 0, u.id);
     if (!req.body.active) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(u.id);
   }

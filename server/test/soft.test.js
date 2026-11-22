@@ -27,12 +27,14 @@ test('мягкий старт: заявка по паролю → одобрен
   assert.equal((await call('POST', '/auth/otp/request', { phone: '77011112222' })).status, 403, 'SMS выключены');
   assert.equal((await call('POST', '/auth/register', { role: 'client', name: 'К', phone: '77011112222', password: 'secret12' })).status, 400, 'клиенты по паролю не регистрируются');
 
-  // заявка продавца с паролем
+  // продавцы сами не регистрируются — аккаунт и пароль выдаёт владелец
   let r = await call('POST', '/auth/register', { role: 'seller', name: 'Гульнар', phone: '77011113333', password: 'secret12', shop_name: 'Gul Shop', pickup_address: 'ул. Абая, 5' });
-  assert.equal(r.status, 201);
-  assert.equal(r.data.user.approved, false);
+  assert.equal(r.status, 403);
   const admin = await login('77000000001', 'admin123');
-  await call('POST', `/admin/users/${r.data.user.id}/approve`, null, admin);
+  assert.equal((await call('POST', '/admin/users', { role: 'seller', name: 'Гульнар', phone: '77011113333', password: 'secret12' }, admin)).status, 400, 'у продавца нужен магазин');
+  r = await call('POST', '/admin/users', { role: 'seller', name: 'Гульнар', phone: '77011113333', password: 'secret12', shop_name: 'Gul Shop', pickup_address: 'ул. Абая, 5' }, admin);
+  assert.equal(r.status, 201);
+  assert.equal(r.data.user.approved, true, 'созданный владельцем продавец сразу работает');
   const seller = await login('77011113333', 'secret12');
   assert.ok(seller, 'продавец входит по паролю');
 
@@ -61,4 +63,20 @@ test('мягкий старт: заявка по паролю → одобрен
   const done = (await call('GET', `/track/${o.code}`)).data.order;
   assert.equal(done.status, 'delivered');
   assert.ok(done.seller_paid && done.buyer_paid);
+});
+
+test('владелец меняет пароль курьеру: старый пароль и старые входы перестают работать', async () => {
+  const admin = await login('77000000001', 'admin123');
+  let r = await call('POST', '/admin/users', { role: 'courier', name: 'Нурлан', phone: '77017770000', password: 'first123' }, admin);
+  const id = r.data.user.id;
+  const old = await login('77017770000', 'first123');
+  assert.equal((await call('GET', '/me', null, old)).status, 200);
+  r = await call('PATCH', `/admin/users/${id}`, { password: 'second456' }, admin);
+  assert.equal(r.status, 200);
+  assert.equal((await call('GET', '/me', null, old)).status, 401, 'старый вход закрыт');
+  assert.equal((await call('POST', '/auth/login', { phone: '77017770000', password: 'first123' })).status, 401);
+  assert.ok(await login('77017770000', 'second456'));
+  assert.equal((await call('PATCH', `/admin/users/${id}`, { password: '123' }, admin)).status, 400, 'короткий пароль');
+  const courier = await login('77000000003', 'courier123');
+  assert.equal((await call('PATCH', `/admin/users/${id}`, { password: 'hack1234' }, courier)).status, 403, 'менять пароли может только владелец');
 });

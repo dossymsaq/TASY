@@ -124,12 +124,30 @@ function authView(mode = AUTH_HASH[location.hash] || 'choose') {
         <form class="row" onsubmit="event.preventDefault(); const c=this.code.value.trim(); if(c) location.href='/t/'+encodeURIComponent(c.toUpperCase())">
           <input name="code" placeholder="Например, K7QX2M9A" style="flex:1;min-width:0;text-transform:uppercase" autocomplete="off" aria-label="Код заказа"><button class="btn">Найти</button></form>${back}`,
   });
+  // Аккаунты продавцов выдаёт владелец: вместо регистрации — заявка «Подключить магазин» (приходит в «Обращения»)
+  if (!S.cfg?.seller_signup) Object.assign(views, {
+    seller: (views.seller || '').replace(/<p class="small" style="margin:0">Ещё не работаете с нами\?.*?<\/p>/s, '')
+      .replace(/Пароль вы задали в заявке\./, 'Телефон и пароль для входа выдаёт владелец сервиса.')
+      .replace(back, `<p class="small" style="margin:0">Ещё не работаете с нами? <a href="#register-seller" data-act="authMode" data-m="seller-apply">Подключить магазин</a></p>${back}`),
+    'seller-apply': `<h2 style="margin:0">Подключить магазин</h2><p class="small muted" style="margin:0">Доставка по Астане — 750 ₸, посылки до 2 кг. Оставьте контакты — мы позвоним, заключим договор и выдадим логин и пароль.</p>
+      <form data-form="lead" class="stack">
+        <div><label for="aName">Ваше имя</label><input id="aName" name="contact_name" required></div>
+        <div><label for="aPhone">Телефон</label><input id="aPhone" name="contact_phone" type="tel" placeholder="+7 7XX XXX XX XX" autocomplete="tel" required></div>
+        <div><label for="aShop">Название магазина</label><input id="aShop" name="shop" required></div>
+        <div><label for="aMsg">Сколько примерно доставок в день? (необязательно)</label><input id="aMsg" name="volume"></div>
+        <div class="err"></div><button class="btn block sun">Отправить заявку</button>${legal}</form>${back}`,
+  });
   $view.innerHTML = `${JInstall.banner()}<div class="card stack" style="max-width:520px;margin:24px auto">${views[mode] || views.choose}</div>`;
 }
 actions.authMode = (d) => { history.replaceState(null, '', d.m === 'choose' ? location.pathname + location.search : (d.m === 'seller-apply' ? '#register-seller' : '#' + d.m)); authView(d.m); };
 const forms = {};
 forms.login = async (f) => { const r = await api('POST', '/auth/login', f); store.token = r.token; start(); };
 forms.register = async (f) => { const r = await api('POST', '/auth/register', f); store.token = r.token; history.replaceState(null, '', '/app'); start(); };
+forms.lead = async (f, form) => {
+  await api('POST', '/tickets', { subject: `Подключение магазина: ${f.shop}`, message: `Магазин: ${f.shop}\nДоставок в день: ${f.volume || 'не указано'}`, contact_name: f.contact_name, contact_phone: f.contact_phone });
+  form.closest('.card').innerHTML = `<h2 style="margin:0">Заявка отправлена</h2><p style="margin:0">Спасибо, ${esc(f.contact_name)}! Мы позвоним вам в ближайшее время, заключим договор и выдадим логин и пароль для входа.</p>
+    <p class="small" style="margin:0"><a href="#" data-act="authMode" data-m="choose">← На страницу входа</a></p>`;
+};
 
 async function otpSend(form) {
   const r = await api('POST', '/auth/otp/request', { phone: form.phone.value });
@@ -146,6 +164,10 @@ forms.otp = async (f, form) => {
   const body = kind === 'seller-login' ? { phone: f.phone, code: f.code } : f;
   const r = await api('POST', '/auth/otp/verify', body);
   if (r.need_profile) {
+    if (kind === 'seller-login' && !S.cfg?.seller_signup) {
+      form.querySelector('.err').innerHTML = 'Этот номер не подключён. Логин выдаёт владелец сервиса — <a href="#register-seller" data-act="authMode" data-m="seller-apply">оставьте заявку</a>.';
+      return;
+    }
     if (kind === 'seller-login') { // номера нет — предложим заявку, код уже проверен
       authView('seller-apply'); history.replaceState(null, '', '#register-seller');
       const nf = document.querySelector('form[data-kind="seller-apply"]');
@@ -462,29 +484,32 @@ VIEWS.admin = {
     const { users } = await api('GET', '/admin/users');
     const pending = users.filter((u) => u.role === 'seller' && !u.approved && u.active);
     const base = location.origin + location.pathname;
-    const links = [['Владелец', '#owner'], ['Продавец', '#seller'], ['Заявка продавца', '#register-seller'], ['Клиент', '#client'], ['Курьер', '#courier']];
+    const links = [['Владелец', '#owner'], ['Продавец', '#seller'], ['Курьер', '#courier'], ['Клиент', '#client'], ['Подключить магазин (заявка)', '#register-seller']];
     return `${pending.length ? `<div class="card" style="margin-bottom:16px;border-color:var(--sun)"><h3>Заявки продавцов · ${pending.length}</h3>
       <p class="small muted">Одобрите заявку после подписания договора — продавец сразу сможет оформлять доставки.</p>
       <div class="scroll"><table class="table"><tr><th>Магазин</th><th>Имя</th><th>Телефон</th><th>Адрес забора</th><th>Заявка</th><th></th></tr>
       ${pending.map((u) => `<tr><td><b>${esc(u.shop_name || '')}</b></td><td>${esc(u.name)}</td><td>${phone(u.phone)}</td><td>${esc(u.pickup_address || '')}</td><td>${date(u.created_at)}</td>
         <td><button class="btn sun sm" data-act="approveSeller" data-id="${u.id}">Одобрить</button></td></tr>`).join('')}</table></div></div>` : ''}
+      <div class="card" style="margin-bottom:16px" id="newAcc"><h3>Создать аккаунт</h3>
+      <p class="small muted">Продавцам и курьерам аккаунты выдаёте вы: задайте телефон и пароль, затем отправьте человеку данные для входа.</p>
+      <form data-form="addUser" class="fields">
+        <div><label for="nRole">Роль</label><select id="nRole" name="role" onchange="document.querySelectorAll('[data-seller-only]').forEach((el) => { el.hidden = this.value !== 'seller'; el.querySelector('input').required = this.value === 'seller'; })">
+          <option value="seller">Продавец</option><option value="courier">Курьер</option><option value="support">Поддержка</option><option value="admin">Владелец / администратор</option></select></div>
+        <div><label for="nName">Имя</label><input id="nName" name="name" required></div>
+        <div><label for="nPhone">Телефон (логин)</label><input id="nPhone" name="phone" type="tel" placeholder="+7 7XX XXX XX XX" required></div>
+        <div><label for="nPass">Пароль</label><div class="row" style="flex-wrap:nowrap"><input id="nPass" name="password" minlength="6" required autocomplete="off" style="flex:1;min-width:0"><button type="button" class="btn ghost sm" data-act="genPass" data-for="nPass">Придумать</button></div></div>
+        <div data-seller-only><label for="nShop">Магазин</label><input id="nShop" name="shop_name" required></div>
+        <div data-seller-only><label for="nAddr">Адрес забора</label><input id="nAddr" name="pickup_address" placeholder="Улица, дом, офис" required></div>
+        <div class="full err"></div><div><button class="btn sun">Создать аккаунт</button></div>
+      </form></div>
       <div class="card" style="margin-bottom:16px"><h3>Ссылки на вход и установку приложения</h3>
         <p class="small muted">Отправьте ссылку человеку — откроется его вход и кнопка «Установить приложение» на экран «Домой».</p>
         <div class="stack">${links.map(([t, h]) => `<div class="row between" style="flex-wrap:wrap"><span><b>${t}</b> · <span class="small muted">${esc(base + h)}</span></span>
           <button class="btn ghost sm" data-act="copyLink" data-link="${esc(base + h)}">Копировать</button></div>`).join('')}</div></div>
-      <div class="card" style="margin-bottom:16px"><h3>Добавить пользователя</h3>
-      <form data-form="addUser" class="fields">
-        <div><label>Роль</label><select name="role"><option value="courier">Курьер</option><option value="seller">Продавец (по договору)</option><option value="support">Поддержка</option><option value="admin">Владелец / администратор</option></select></div>
-        <div><label>Имя</label><input name="name" required></div>
-        <div><label>Телефон</label><input name="phone" type="tel" required></div>
-        <div><label>Пароль</label><input name="password" minlength="6" required></div>
-        <div><label>Магазин (для продавца)</label><input name="shop_name"></div>
-        <div><label>Адрес забора (для продавца)</label><input name="pickup_address"></div>
-        <div class="full err"></div><div><button class="btn">Добавить</button></div>
-      </form></div>
       <div class="card scroll"><table class="table"><tr><th>Имя</th><th>Роль</th><th>Телефон</th><th>Магазин</th><th>Создан</th><th></th></tr>
       ${users.map((u) => `<tr><td>${esc(u.name)}</td><td>${ROLE_NAMES[u.role]}${u.role === 'seller' && !u.approved ? ' <span class="badge new">заявка</span>' : ''}</td><td>${phone(u.phone)}</td><td>${esc(u.shop_name || '')}</td><td>${date(u.created_at)}</td>
-        <td>${u.id === S.user.id ? '' : `<button class="btn ${u.active ? 'ghost' : ''} sm" data-act="toggleUser" data-id="${u.id}" data-on="${u.active ? 0 : 1}">${u.active ? 'Заблокировать' : 'Разблокировать'}</button>`}</td></tr>`).join('')}
+        <td><div class="row" style="flex-wrap:nowrap">${u.role === 'client' ? '' : `<button class="btn ghost sm" data-act="passDlg" data-id="${u.id}" data-name="${esc(u.name)}" data-phone="${esc(u.phone)}" data-role="${u.role}">Пароль</button>`}
+          ${u.id === S.user.id ? '' : `<button class="btn ${u.active ? 'ghost' : ''} sm" data-act="toggleUser" data-id="${u.id}" data-on="${u.active ? 0 : 1}">${u.active ? 'Заблокировать' : 'Разблокировать'}</button>`}</div></td></tr>`).join('')}
       </table></div>`;
   },
   tickets: ticketsView,
@@ -507,7 +532,36 @@ actions.copyLink = async (d) => {
   try { await navigator.clipboard.writeText(d.link); toast('Ссылка скопирована'); }
   catch { prompt('Скопируйте ссылку', d.link); }
 };
-forms.addUser = async (f) => { await api('POST', '/admin/users', f); toast('Сотрудник добавлен'); reload(); };
+// Читаемый пароль без похожих символов (0/O, 1/l)
+const genPassword = () => { const a = 'abcdefghjkmnpqrstuvwxyz', d = '23456789'; const r = (s) => s[crypto.getRandomValues(new Uint32Array(1))[0] % s.length];
+  return Array.from({ length: 4 }, () => r(a)).join('') + Array.from({ length: 4 }, () => r(d)).join(''); };
+actions.genPass = (d) => { const el = document.getElementById(d.for); el.value = genPassword(); el.focus(); };
+const ROLE_HASH = { seller: '#seller', courier: '#courier', support: '#owner', admin: '#owner' };
+// Карточка с данными для входа: скопировать или отправить в WhatsApp
+function showCredentials(u, password, title) {
+  const link = location.origin + location.pathname + (ROLE_HASH[u.role] || '');
+  const text = `Жеткіз 750 — ваш вход (${ROLE_NAMES[u.role].toLowerCase()}):\nСсылка: ${link}\nТелефон: +${u.phone}\nПароль: ${password}\nОткройте ссылку и нажмите «Установить приложение».`;
+  S.credText = text;
+  openDialog(`<div class="row between"><h3 style="margin:0">${esc(title)}</h3><button class="btn ghost sm" data-close>✕</button></div>
+    <div class="stack"><p class="small muted" style="margin:0">Отправьте эти данные человеку. Пароль больше нигде не показывается — если его потеряют, задайте новый.</p>
+    <div class="card" style="box-shadow:none"><div><b>${esc(u.name)}</b> · ${ROLE_NAMES[u.role]}</div><div>Телефон: <b>${phone(u.phone)}</b></div><div>Пароль: <b style="font-family:ui-monospace,Menlo,monospace;letter-spacing:1px">${esc(password)}</b></div><div class="small muted">${esc(link)}</div></div>
+    <div class="row"><button class="btn" data-act="copyCred">Скопировать</button><a class="btn ghost" target="_blank" rel="noopener" href="https://wa.me/${esc(u.phone)}?text=${encodeURIComponent(text)}">Отправить в WhatsApp</a></div></div>`);
+}
+actions.copyCred = async () => { try { await navigator.clipboard.writeText(S.credText); toast('Скопировано'); } catch { toast('Не удалось скопировать — выделите текст вручную'); } };
+forms.addUser = async (f) => {
+  const { user } = await api('POST', '/admin/users', f);
+  await reload();
+  showCredentials(user, f.password, 'Аккаунт создан');
+};
+actions.passDlg = (d) => openDialog(`<div class="row between"><h3 style="margin:0">Новый пароль</h3><button class="btn ghost sm" data-close>✕</button></div>
+  <form data-form="setPass" data-id="${d.id}" data-name="${esc(d.name)}" data-phone="${esc(d.phone)}" data-role="${esc(d.role)}" class="stack">
+    <p class="small muted" style="margin:0">${esc(d.name)} · ${phone(d.phone)}. Старый пароль перестанет работать, человек выйдет со всех устройств.</p>
+    <div><label for="sPass">Пароль</label><div class="row" style="flex-wrap:nowrap"><input id="sPass" name="password" minlength="6" required autocomplete="off" style="flex:1;min-width:0"><button type="button" class="btn ghost sm" data-act="genPass" data-for="sPass">Придумать</button></div></div>
+    <div class="err"></div><button class="btn sun">Сохранить пароль</button></form>`);
+forms.setPass = async (f, form) => {
+  await api('PATCH', `/admin/users/${form.dataset.id}`, { password: f.password });
+  showCredentials({ name: form.dataset.name, phone: form.dataset.phone, role: form.dataset.role }, f.password, 'Пароль изменён');
+};
 actions.toggleUser = async (d) => { await api('PATCH', `/admin/users/${d.id}`, { active: d.on === '1' }); reload(); };
 
 VIEWS.support = { tickets: ticketsView, orders: ordersView };

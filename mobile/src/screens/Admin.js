@@ -1,6 +1,6 @@
 import React from 'react';
-import { Pressable, View } from 'react-native';
-import { api, date, money, phone } from '../api';
+import { Pressable, Share, View } from 'react-native';
+import { SITE_URL, api, date, money, phone } from '../api';
 import { Empty, OrderCard, Scroll, alertError, confirm, useLoad } from '../common';
 import { useNav } from '../nav';
 import { Button, Card, Chips, Err, H, Input, T, s, useTheme } from '../ui';
@@ -112,14 +112,38 @@ export function Couriers() {
   );
 }
 
+// Читаемый пароль без похожих символов (0/O, 1/l)
+const genPassword = () => { const a = 'abcdefghjkmnpqrstuvwxyz', d = '23456789'; const r = (x) => x[Math.floor(Math.random() * x.length)];
+  return Array.from({ length: 4 }, () => r(a)).join('') + Array.from({ length: 4 }, () => r(d)).join(''); };
+const ROLE_HASH = { seller: '#seller', courier: '#courier', support: '#owner', admin: '#owner' };
+// Данные для входа: показать и отправить человеку (WhatsApp, Telegram, SMS — через «Поделиться»)
+async function sendCredentials(u, password, title) {
+  const text = `Жеткіз 750 — ваш вход (${(ROLES[u.role] || '').toLowerCase()}):\nСсылка: ${SITE_URL}/app${ROLE_HASH[u.role] || ''}\nТелефон: +${u.phone}\nПароль: ${password}`;
+  if (await confirm(title, `${u.name}\nТелефон: ${phone(u.phone)}\nПароль: ${password}\n\nОтправить эти данные человеку?`)) await Share.share({ message: text });
+}
+
 export function Users() {
   const { user } = useNav();
   const { data, error, refreshing, load } = useLoad(() => api('GET', '/admin/users'));
-  const [f, setF] = React.useState({ role: 'courier', name: '', phone: '', password: '' });
+  const blank = { role: 'seller', name: '', phone: '', password: '', shop_name: '', pickup_address: '' };
+  const [f, setF] = React.useState(blank);
   const [err, setErr] = React.useState('');
+  const [pw, setPw] = React.useState({ id: null, value: '' });
   const add = async () => {
     setErr('');
-    try { await api('POST', '/admin/users', f); setF({ ...f, name: '', phone: '', password: '' }); load(); } catch (e) { setErr(e.message); }
+    try {
+      const { user: u } = await api('POST', '/admin/users', f);
+      const pass = f.password;
+      setF({ ...blank, role: f.role }); load();
+      await sendCredentials(u, pass, 'Аккаунт создан');
+    } catch (e) { setErr(e.message); }
+  };
+  const savePw = (u) => async () => {
+    try {
+      await api('PATCH', `/admin/users/${u.id}`, { password: pw.value });
+      const pass = pw.value; setPw({ id: null, value: '' });
+      await sendCredentials(u, pass, 'Пароль изменён');
+    } catch (e) { alertError(e); }
   };
   const toggle = (u) => async () => { try { await api('PATCH', `/admin/users/${u.id}`, { active: !u.active }); load(); } catch (e) { alertError(e); } };
   const approve = (u) => async () => { try { await api('POST', `/admin/users/${u.id}/approve`); load(); } catch (e) { alertError(e); } };
@@ -138,23 +162,36 @@ export function Users() {
         ))}
       </Card> : null}
       <Card style={{ gap: 10 }}>
-        <H>Добавить пользователя</H>
-        <Chips value={f.role} onChange={(v) => setF({ ...f, role: v })} options={[['courier', 'Курьер'], ['seller', 'Продавец'], ['support', 'Поддержка'], ['admin', 'Владелец']]} />
+        <H>Создать аккаунт</H>
+        <T muted size={13}>Продавцам и курьерам логин и пароль выдаёте вы.</T>
+        <Chips value={f.role} onChange={(v) => setF({ ...f, role: v })} options={[['seller', 'Продавец'], ['courier', 'Курьер'], ['support', 'Поддержка'], ['admin', 'Владелец']]} />
         {f.role === 'seller' ? <>
           <Input placeholder="Магазин" value={f.shop_name || ''} onChangeText={(v) => setF({ ...f, shop_name: v })} />
           <Input placeholder="Адрес забора" value={f.pickup_address || ''} onChangeText={(v) => setF({ ...f, pickup_address: v })} />
         </> : null}
         <Input placeholder="Имя" value={f.name} onChangeText={(v) => setF({ ...f, name: v })} />
         <Input placeholder="Телефон" keyboardType="phone-pad" value={f.phone} onChangeText={(v) => setF({ ...f, phone: v })} />
-        <Input placeholder="Пароль (мин. 6)" value={f.password} onChangeText={(v) => setF({ ...f, password: v })} />
+        <View style={[s.row, { alignItems: 'flex-end', flexWrap: 'nowrap' }]}>
+          <View style={{ flex: 1 }}><Input placeholder="Пароль (мин. 6)" value={f.password} onChangeText={(v) => setF({ ...f, password: v })} autoCapitalize="none" /></View>
+          <Button small kind="ghost" title="Придумать" onPress={() => setF({ ...f, password: genPassword() })} />
+        </View>
         <Err>{err}</Err>
-        <Button title="Добавить" onPress={add} />
+        <Button kind="sun" title="Создать аккаунт" onPress={add} />
       </Card>
       {data?.users.map((u) => (
         <Card key={u.id}>
           <View style={s.between}><T bold style={{ flex: 1 }}>{u.name}</T><T muted size={13}>{ROLES[u.role]}{u.role === 'seller' && !u.approved ? ' · заявка' : ''}</T></View>
           <T muted size={14}>{phone(u.phone)}{u.shop_name ? ' · ' + u.shop_name : ''} · {date(u.created_at)}</T>
-          {u.id !== user.id ? <Button small kind={u.active ? 'ghost' : 'brand'} title={u.active ? 'Заблокировать' : 'Разблокировать'} onPress={toggle(u)} style={{ alignSelf: 'flex-start', marginTop: 4 }} /> : null}
+          {pw.id === u.id ? <View style={{ gap: 6, marginTop: 4 }}>
+            <View style={[s.row, { alignItems: 'flex-end', flexWrap: 'nowrap' }]}>
+              <View style={{ flex: 1 }}><Input placeholder="Новый пароль" value={pw.value} onChangeText={(v) => setPw({ id: u.id, value: v })} autoCapitalize="none" /></View>
+              <Button small kind="ghost" title="Придумать" onPress={() => setPw({ id: u.id, value: genPassword() })} />
+            </View>
+            <View style={s.row}><Button small kind="sun" title="Сохранить пароль" onPress={savePw(u)} /><Button small kind="ghost" title="Отмена" onPress={() => setPw({ id: null, value: '' })} /></View>
+          </View> : <View style={[s.row, { marginTop: 4 }]}>
+            {u.role !== 'client' ? <Button small kind="ghost" title="Пароль" onPress={() => setPw({ id: u.id, value: '' })} /> : null}
+            {u.id !== user.id ? <Button small kind={u.active ? 'ghost' : 'brand'} title={u.active ? 'Заблокировать' : 'Разблокировать'} onPress={toggle(u)} /> : null}
+          </View>}
         </Card>
       ))}
     </Scroll>

@@ -24,6 +24,8 @@ export default function Auth({ onLogin }) {
   const { cfg } = useNav();
   const sms = cfg?.sms_login !== false; // мягкий старт: без SMS — вход по паролю, клиенты без входа
   const [track, setTrack] = React.useState(null);
+  const [leadSent, setLeadSent] = React.useState(false);
+  const signup = !!cfg?.seller_signup; // false — аккаунты продавцов выдаёт владелец, вместо регистрации заявка
   const [mode, setMode] = React.useState('choose'); // choose | owner | courier | seller | seller-apply | client
   const empty = { phone: '', password: '', name: '', shop_name: '', pickup_address: '', code: '' };
   const [f, setF] = React.useState(empty);
@@ -31,7 +33,7 @@ export default function Auth({ onLogin }) {
   const [needName, setNeedName] = React.useState(false);
   const [err, setErr] = React.useState('');
   const set = (k) => (v) => setF((x) => ({ ...x, [k]: v }));
-  const go = (m, keep = false) => { setMode(m); setErr(''); setNeedName(false); setTrack(null); if (!keep) { setSent(false); setF(empty); } };
+  const go = (m, keep = false) => { setMode(m); setErr(''); setNeedName(false); setTrack(null); setLeadSent(false); if (!keep) { setSent(false); setF(empty); } };
 
   const done = async (r) => { await saveToken(r.token); onLogin(r.user); };
   const requestCode = async () => {
@@ -45,14 +47,38 @@ export default function Auth({ onLogin }) {
   const submit = async () => {
     setErr('');
     try {
+      if (mode === 'seller-apply' && !signup) {
+        await api('POST', '/tickets', { subject: `Подключение магазина: ${f.shop_name}`, message: `Магазин: ${f.shop_name}\nАдрес: ${f.pickup_address || 'не указан'}`, contact_name: f.name, contact_phone: f.phone });
+        setLeadSent(true); return;
+      }
       if (isPassword) return await done(await api('POST', '/auth/login', { phone: f.phone, password: f.password }));
       if (!sms && mode === 'seller-apply') return await done(await api('POST', '/auth/register', { role: 'seller', name: f.name, phone: f.phone, shop_name: f.shop_name, pickup_address: f.pickup_address, password: f.password }));
-      if (!sms && mode === 'client') { setTrack((await api('GET', `/track/${encodeURIComponent(f.code.trim().toUpperCase())}`)).order); return; }
+      if (mode === 'seller-apply' && !signup) {
+    return (
+      <ScrollView contentContainerStyle={[s.list, { paddingTop: 32 }]} keyboardShouldPersistTaps="handled">
+        <Card style={{ gap: 12 }}>
+          <H>{leadSent ? 'Заявка отправлена' : 'Подключить магазин'}</H>
+          {leadSent ? <T>Спасибо! Мы позвоним вам, заключим договор и выдадим логин и пароль для входа.</T> : <>
+            <T muted size={14}>Доставка по Астане — 750 ₸, посылки до 2 кг. Оставьте контакты — мы позвоним и выдадим логин и пароль.</T>
+            <Input label="Ваше имя" value={f.name} onChangeText={set('name')} />
+            <Input label="Телефон" value={f.phone} onChangeText={set('phone')} keyboardType="phone-pad" placeholder="+7 7XX XXX XX XX" />
+            <Input label="Название магазина" value={f.shop_name} onChangeText={set('shop_name')} />
+            <Input label="Адрес, откуда забирать (необязательно)" value={f.pickup_address} onChangeText={set('pickup_address')} />
+            <Err>{err}</Err>
+            <Button kind="sun" title="Отправить заявку" onPress={submit} />
+          </>}
+          {link('← Выбрать другой вход', () => go('choose'))}
+        </Card>
+      </ScrollView>
+    );
+  }
+  if (!sms && mode === 'client') { setTrack((await api('GET', `/track/${encodeURIComponent(f.code.trim().toUpperCase())}`)).order); return; }
       if (!sent) return await requestCode();
       const body = { phone: f.phone, code: f.code, role: mode === 'client' ? 'client' : 'seller' };
       if (mode === 'seller-apply' || needName) Object.assign(body, { name: f.name, shop_name: f.shop_name, pickup_address: f.pickup_address });
       const r = await api('POST', '/auth/otp/verify', body);
       if (r.need_profile) {
+        if (mode === 'seller' && !signup) { setErr('Этот номер не подключён. Логин выдаёт владелец сервиса — оставьте заявку «Подключить магазин».'); return; }
         if (mode === 'seller') { go('seller-apply', true); setErr('Этот номер ещё не подключён. Заполните заявку — код уже подтверждён.'); return; }
         setNeedName(true); setErr('Номер новый — укажите имя, чтобы создать кабинет.'); return;
       }
@@ -65,7 +91,7 @@ export default function Auth({ onLogin }) {
   const note = {
     owner: 'Сотрудники поддержки входят здесь же.',
     courier: 'Логин и пароль выдаёт владелец сервиса.',
-    seller: 'Для магазинов, работающих с нами по договору.',
+    seller: 'Для магазинов, работающих с нами по договору. Логин и пароль выдаёт владелец сервиса.',
     'seller-apply': 'Доставка по Астане — 750 ₸, посылки до 2 кг. После заявки мы свяжемся с вами и заключим договор.',
     client: 'Посылки, отправленные на ваш номер, появятся автоматически.',
   }[mode];
@@ -136,7 +162,7 @@ export default function Auth({ onLogin }) {
               <T size={12} color={th.brand} onPress={() => openSite('/offer')}>публичной оферты</T> и{' '}
               <T size={12} color={th.brand} onPress={() => openSite('/privacy')}>политики конфиденциальности</T>.</T> : null}
             {sent && !isPassword ? link('Отправить код ещё раз', requestCode) : null}
-            {mode === 'seller' ? link('Ещё не работаете с нами? Подать заявку', () => go('seller-apply')) : null}
+            {mode === 'seller' ? link(signup ? 'Ещё не работаете с нами? Подать заявку' : 'Ещё не работаете с нами? Подключить магазин', () => go('seller-apply')) : null}
             {mode === 'seller-apply' ? link('Уже подключены? Войти', () => go('seller')) : null}
             {hint ? <T muted size={12}>Демо: {hint}</T> : null}
             {link('← Выбрать другой вход', () => go('choose'))}
