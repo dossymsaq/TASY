@@ -4,68 +4,336 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Жеткіз 750 — доставка по Астане за 750 ₸</title>
-  <meta name="description" content="Курьерская доставка посылок до 2 кг по Астане — 750 ₸ в любой район города.">
-  <meta name="theme-color" content="#00a3bf">
+  <meta name="description" content="Курьерская доставка посылок до 2 кг по Астане — 750 ₸ в любой район города. Свои курьеры, отслеживание онлайн, оплата картой или наличными.">
+  <meta name="theme-color" content="#0e1a24">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Inter:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="/styles.css">
+  <script>document.documentElement.classList.add('js')</script>
+  <style>
+    /* Главная: тёмный «ночной город» наверху, светлые разделы ниже. Жёлтый — фирменный цвет курьера, бирюзовый — маршрут. */
+    :root {
+      --ink: #0e1a24; --ink-soft: #1b2d3b; --on-ink: #eef4f7; --on-ink-muted: #9fb3c1;
+      --route: #19b8d4; --river: #2c6f8f; --grid: rgba(255,255,255,.06);
+      --display: "Unbounded", "Arial Black", system-ui, sans-serif;
+      --body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    html, body { overflow-x: clip; }
+    body { font-family: var(--body); }
+    h1, h2, .l-display { font-family: var(--display); font-weight: 800; letter-spacing: -.02em; text-wrap: balance; }
+
+    /* Шапка поверх тёмного экрана */
+    .l-top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--ink); border-bottom: 1px solid rgba(255,255,255,.08); }
+    body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 21; background: var(--ink); }
+    .l-top .wrap { display: flex; align-items: center; gap: 20px; height: 64px; }
+    .l-top .logo { color: var(--on-ink); font-family: var(--display); font-size: 17px; }
+    .l-nav { display: flex; gap: 22px; margin-left: 12px; }
+    .l-nav a { color: var(--on-ink-muted); text-decoration: none; font-weight: 500; font-size: 15px; }
+    .l-nav a:hover, .l-nav a:focus-visible { color: var(--on-ink); }
+    .l-top .spacer { flex: 1; }
+    .l-top .btn.ghost { color: var(--on-ink); border-color: rgba(255,255,255,.22); }
+    @media (max-width: 860px) { .l-nav { display: none; } }
+    @media (max-width: 420px) { .l-top .btn.sun { display: none; } }
+
+    /* Первый экран */
+    .l-hero { background: radial-gradient(1200px 500px at 80% -10%, rgba(25,184,212,.18), transparent 60%), var(--ink); color: var(--on-ink); overflow: hidden; }
+    .l-hero .wrap { display: grid; grid-template-columns: 1.05fr .95fr; gap: 40px; align-items: center; padding-block: 64px 72px; }
+    @media (max-width: 900px) { .l-hero .wrap { grid-template-columns: 1fr; padding-block: 40px 48px; } }
+    .l-eyebrow { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--sun); }
+    .l-eyebrow::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--sun); box-shadow: 0 0 0 0 rgba(254,197,12,.6); animation: l-pulse 2s infinite; }
+    .l-hero h1 { font-size: clamp(34px, 5.6vw, 64px); line-height: 1.04; margin: 18px 0 0; }
+    .l-hero h1 .w { display: inline-block; animation: l-rise .8s cubic-bezier(.2,.7,.2,1) both; }
+    .l-hero h1 .price { color: var(--sun); white-space: nowrap; }
+    .l-rotator { margin-top: 22px; font-size: clamp(18px, 2.4vw, 22px); color: var(--on-ink-muted); line-height: 1.5; }
+    .l-rotator .slot { position: relative; display: inline-block; width: 6.4em; height: 1.45em; overflow: hidden; vertical-align: bottom; margin-inline: .25em; color: var(--on-ink); font-weight: 700; }
+    .l-rotator .slot span { position: absolute; left: 0; top: 0; white-space: nowrap; border-bottom: 3px solid var(--sun); line-height: 1.3; }
+    .l-rotator .slot span.in { animation: l-slide-in .6s cubic-bezier(.2,.7,.2,1) both; }
+    .l-rotator .slot span.out { animation: l-slide-out .5s ease-in both; }
+    .l-hero .lead { color: var(--on-ink-muted); font-size: 17px; max-width: 34em; margin: 18px 0 0; }
+    .l-cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+    .l-cta .btn { min-height: 52px; padding: 14px 24px; font-size: 16px; }
+    .l-cta .btn.ghost { color: var(--on-ink); border-color: rgba(255,255,255,.25); }
+    .l-facts { display: flex; flex-wrap: wrap; gap: 28px; margin-top: 38px; padding-top: 24px; border-top: 1px solid rgba(255,255,255,.1); }
+    .l-facts b { display: block; font-family: var(--display); font-size: 22px; color: var(--on-ink); }
+    .l-facts span { font-size: 14px; color: var(--on-ink-muted); }
+
+    /* Карта с курьером */
+    .l-map { position: relative; aspect-ratio: 1 / 0.86; max-width: 100%; border-radius: 22px; background: var(--ink-soft); border: 1px solid rgba(255,255,255,.08); box-shadow: 0 30px 80px rgba(0,0,0,.35); overflow: hidden; animation: l-from-right 1s .2s cubic-bezier(.2,.7,.2,1) both; }
+    .l-map svg { width: 100%; height: 100%; display: block; }
+    .l-map .label { font: 600 12px var(--body); fill: var(--on-ink-muted); letter-spacing: .06em; text-transform: uppercase; }
+    .l-map .route { fill: none; stroke: var(--route); stroke-width: 4; stroke-linecap: round; stroke-dasharray: 8 10; animation: l-dash 1.2s linear infinite; }
+    .l-map .ticket { position: absolute; left: 18px; bottom: 18px; right: 18px; display: flex; justify-content: space-between; gap: 12px; align-items: center; background: rgba(14,26,36,.9); border: 1px solid rgba(255,255,255,.1); border-radius: 14px; padding: 12px 16px; color: var(--on-ink); font-size: 14px; }
+    .l-map .ticket small { display: block; color: var(--on-ink-muted); font-size: 12px; }
+    .l-status { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: var(--sun); white-space: nowrap; }
+    .l-status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: l-pulse 2s infinite; }
+
+    /* Бегущие строки навстречу друг другу */
+    .l-marquee { background: var(--sun); color: #14212b; overflow: hidden; padding-block: 14px; border-block: 1px solid rgba(0,0,0,.08); }
+    .l-marquee.alt { background: var(--ink); color: var(--on-ink); }
+    .l-track { display: flex; width: max-content; animation: l-marquee 38s linear infinite; }
+    .l-marquee.alt .l-track { animation-direction: reverse; animation-duration: 46s; }
+    .l-track ul { display: flex; margin: 0; padding: 0; list-style: none; }
+    .l-track li { font-family: var(--display); font-weight: 600; font-size: clamp(16px, 2vw, 22px); white-space: nowrap; padding-inline: 22px; display: flex; align-items: center; gap: 22px; }
+    .l-track li::after { content: "✦"; font-size: .7em; opacity: .6; }
+    .l-marquee:hover .l-track { animation-play-state: paused; }
+
+    /* Разделы */
+    .l-section { padding-block: 84px; }
+    .l-section.tint { background: var(--card); border-block: 1px solid var(--line); }
+    .l-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 16px 40px; margin-bottom: 40px; }
+    .l-head h2 { font-size: clamp(26px, 3.6vw, 40px); margin: 0; max-width: 16em; }
+    .l-head p { color: var(--muted); max-width: 30em; margin: 0; }
+    .l-kicker { display: block; font-family: var(--body); font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--brand-d); margin-bottom: 12px; }
+
+    .l-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; position: relative; counter-reset: s; }
+    .l-steps::before { content: ""; position: absolute; left: 6%; right: 6%; top: 27px; border-top: 2px dashed var(--line); }
+    .l-step { position: relative; }
+    .l-step .n { counter-increment: s; width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; background: var(--ink); color: var(--sun); font-family: var(--display); font-size: 20px; position: relative; }
+    .l-step .n::after { content: counter(s, decimal-leading-zero); }
+    .l-step h3 { margin: 20px 0 8px; font-size: 19px; }
+    .l-step p { margin: 0; color: var(--muted); }
+    @media (max-width: 900px) { .l-steps { grid-template-columns: 1fr 1fr; } .l-steps::before { display: none; } }
+    @media (max-width: 520px) { .l-steps { grid-template-columns: 1fr; } }
+
+    .l-why { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+    @media (max-width: 760px) { .l-why { grid-template-columns: 1fr; } }
+    .l-why article { background: var(--bg); border: 1px solid var(--line); border-radius: 20px; padding: 28px; display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: start; transition: transform .3s, box-shadow .3s; }
+    .l-why article:hover { transform: translateY(-4px); box-shadow: 0 18px 40px rgba(20,33,43,.1); }
+    .l-why .ic { width: 48px; height: 48px; border-radius: 14px; background: var(--ink); border: 1px solid rgba(255,255,255,.1); display: grid; place-items: center; }
+    .l-why .ic svg { width: 24px; height: 24px; stroke: var(--sun); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .l-why h3 { margin: 2px 0 6px; font-size: 19px; }
+    .l-why p { margin: 0; color: var(--muted); }
+
+    .l-price { display: grid; grid-template-columns: 1.1fr .9fr; gap: 24px; align-items: stretch; }
+    @media (max-width: 860px) { .l-price { grid-template-columns: 1fr; } }
+    .l-price .big { background: var(--ink); color: var(--on-ink); border: 1px solid rgba(255,255,255,.08); border-radius: 24px; padding: 40px; position: relative; overflow: hidden; }
+    .l-price .big::after { content: "750"; position: absolute; right: -10px; bottom: -40px; font-family: var(--display); font-size: 180px; font-weight: 800; color: rgba(255,255,255,.04); line-height: 1; }
+    .l-price .big .sum { font-family: var(--display); font-size: clamp(56px, 9vw, 96px); color: var(--sun); line-height: 1; margin: 10px 0 18px; }
+    .l-price .big p { color: var(--on-ink-muted); margin: 0; max-width: 26em; position: relative; }
+    .l-price ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+    .l-price li { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; padding: 18px 22px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; }
+    .l-price li span { color: var(--muted); white-space: nowrap; }
+    .l-price li b { text-align: right; }
+
+    .l-districts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+    .l-districts span { padding: 8px 14px; border-radius: 999px; background: rgba(255,255,255,.08); color: var(--on-ink); font-size: 14px; font-weight: 600; }
+
+    .l-track-box { background: var(--ink); color: var(--on-ink); border: 1px solid rgba(255,255,255,.08); border-radius: 24px; padding: clamp(24px, 4vw, 48px); display: grid; grid-template-columns: 1fr 1.1fr; gap: 24px 40px; align-items: center; }
+    @media (max-width: 860px) { .l-track-box { grid-template-columns: 1fr; } }
+    .l-track-box h2 { font-size: clamp(24px, 3vw, 34px); margin: 0 0 8px; }
+    .l-track-box p { color: var(--on-ink-muted); margin: 0; }
+    .l-track-box form { display: flex; gap: 10px; flex-wrap: wrap; }
+    .l-track-box input { flex: 1; min-width: 0; min-height: 54px; font-size: 17px; text-transform: uppercase; letter-spacing: .08em; background: rgba(255,255,255,.06); color: var(--on-ink); border: 1px solid rgba(255,255,255,.18); border-radius: 12px; padding: 0 16px; }
+    .l-track-box input::placeholder { color: var(--on-ink-muted); text-transform: none; letter-spacing: 0; }
+    .l-track-box .btn { min-height: 54px; padding-inline: 26px; }
+
+    .l-join { text-align: center; padding-block: 90px; }
+    .l-join h2 { font-size: clamp(28px, 4.4vw, 48px); margin: 0 auto 14px; max-width: 18em; }
+    .l-join p { color: var(--muted); margin: 0 auto 28px; max-width: 34em; }
+    .l-join .btn { min-height: 54px; padding: 14px 28px; font-size: 17px; }
+
+    .l-foot { background: var(--ink); color: var(--on-ink-muted); padding-block: 40px; font-size: 14px; }
+    .l-foot .wrap { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: center; justify-content: space-between; }
+    .l-foot a { color: var(--on-ink); }
+    .l-foot .logo { color: var(--on-ink); font-family: var(--display); }
+
+    /* Появление блоков сбоку при прокрутке (только когда работает JS и анимация разрешена) */
+    .js .reveal { opacity: 0; transition: opacity .8s ease, transform .8s cubic-bezier(.2,.7,.2,1); }
+    .js .reveal.from-left { transform: translateX(-60px); }
+    .js .reveal.from-right { transform: translateX(60px); }
+    .js .reveal.from-below { transform: translateY(40px); }
+    .js .reveal.shown { opacity: 1; transform: none; }
+
+    @keyframes l-rise { from { opacity: 0; transform: translateY(.6em); } to { opacity: 1; transform: none; } }
+    @keyframes l-from-right { from { opacity: 0; transform: translateX(80px); } to { opacity: 1; transform: none; } }
+    @keyframes l-slide-in { from { transform: translateX(110%); opacity: 0; } to { transform: none; opacity: 1; } }
+    @keyframes l-slide-out { from { transform: none; opacity: 1; } to { transform: translateX(-110%); opacity: 0; } }
+    @keyframes l-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+    @keyframes l-dash { to { stroke-dashoffset: -36; } }
+    @keyframes l-pulse { 0% { box-shadow: 0 0 0 0 rgba(254,197,12,.55); } 70% { box-shadow: 0 0 0 10px rgba(254,197,12,0); } 100% { box-shadow: 0 0 0 0 rgba(254,197,12,0); } }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      .js .reveal { opacity: 1; transform: none; }
+    }
+    a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid var(--sun); outline-offset: 2px; }
+  </style>
 </head>
 <body>
-<header class="top"><div class="wrap">
+<header class="l-top"><div class="wrap">
   <a class="logo" href="/">Жеткіз <b>750</b></a>
+  <nav class="l-nav" aria-label="Разделы">
+    <a href="#how">Как это работает</a>
+    <a href="#price">Тариф</a>
+    <a href="#why">Почему мы</a>
+    <a href="#track">Отследить</a>
+  </nav>
   <span class="spacer"></span>
   <a class="btn ghost sm" href="/app">Войти</a>
+  <a class="btn sun sm" href="/app#register-seller">Подключиться</a>
 </div></header>
 
-<main class="wrap">
-  <div class="hero">
-    <h1>Доставка по Астане<br>за <em>750 ₸</em></h1>
-    <p class="lead">Посылки до 2 кг в любой район города. Одна цена — без тарифов по расстоянию и скрытых доплат.</p>
-    <div class="row" style="margin-top:20px">
-      <a class="btn sun" href="/app#register-seller">Стать продавцом</a>
-      <a class="btn ghost" href="#track">Отследить посылку</a>
+<section class="l-hero">
+  <div class="wrap">
+    <div>
+      <span class="l-eyebrow">Курьерская служба Астаны</span>
+      <h1><span class="w" style="animation-delay:.05s">Доставка</span> <span class="w" style="animation-delay:.15s">по</span> <span class="w" style="animation-delay:.25s">Астане</span><br><span class="w price" style="animation-delay:.4s">за 750 ₸</span></h1>
+      <p class="l-rotator">В любой район города доставим<span class="slot" aria-live="polite"><span class="in">цветы</span></span></p>
+      <p class="lead">Посылки до 2 кг. Одна цена — без тарифов по расстоянию и скрытых доплат. Свои курьеры и полная ответственность за посылку от продавца до получателя.</p>
+      <div class="l-cta">
+        <a class="btn sun" href="/app#register-seller">Отправить посылку</a>
+        <a class="btn ghost" href="#track">Отследить заказ</a>
+      </div>
+      <div class="l-facts">
+        <div><b>750 ₸</b><span>в черте города</span></div>
+        <div><b>до 2 кг</b><span>вес посылки</span></div>
+        <div><b>5 районов</b><span>вся Астана</span></div>
+      </div>
+    </div>
+
+    <div class="l-map" aria-label="Курьер везёт посылку по Астане">
+      <svg viewBox="0 0 520 450" role="img" aria-hidden="true">
+        <defs><pattern id="g" width="26" height="26" patternUnits="userSpaceOnUse"><path d="M26 0H0V26" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="1"/></pattern></defs>
+        <rect width="520" height="450" fill="url(#g)"/>
+        <!-- Ишим (Есиль) через город -->
+        <path d="M -10 250 C 80 230, 140 300, 230 280 S 360 200, 420 240 S 500 300, 540 280" fill="none" stroke="#2c6f8f" stroke-width="16" stroke-linecap="round" opacity=".55"/>
+        <!-- улицы -->
+        <g stroke="rgba(255,255,255,.12)" stroke-width="3" fill="none">
+          <path d="M 40 60 L 480 120"/><path d="M 30 400 L 500 330"/><path d="M 120 20 L 170 440"/><path d="M 330 10 L 380 440"/><path d="M 20 170 L 500 190"/>
+        </g>
+        <text class="label" x="40" y="44">Сарыарка</text>
+        <text class="label" x="350" y="64">Алматы</text>
+        <text class="label" x="200" y="150">Байконур</text>
+        <text class="label" x="300" y="330">Есиль</text>
+        <text class="label" x="40" y="300">Нура</text>
+        <path class="route" d="M 90 330 C 150 250, 230 300, 270 220 S 380 120, 430 95"/>
+        <!-- точки: магазин и получатель -->
+        <circle cx="90" cy="330" r="10" fill="#19b8d4"/><circle cx="90" cy="330" r="4" fill="#0e1a24"/>
+        <g transform="translate(430 95)"><path d="M0 0 C -14 -16 -14 -32 0 -32 C 14 -32 14 -16 0 0 Z" fill="#fec50c"/><circle cy="-21" r="5" fill="#0e1a24"/></g>
+        <!-- курьер едет по маршруту туда и обратно (в координатах карты) -->
+        <g id="courier">
+          <circle r="26" fill="rgba(254,197,12,.18)"/><circle r="18" fill="#fec50c"/>
+          <g transform="translate(-10 -10) scale(.84)" fill="none" stroke="#14212b" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></g>
+          <animateMotion id="ride" dur="7s" repeatCount="indefinite" calcMode="spline" keyPoints="0;1;1;0" keyTimes="0;0.45;0.55;1" keySplines=".45 .05 .55 .95;0 0 1 1;.45 .05 .55 .95" path="M 90 330 C 150 250, 230 300, 270 220 S 380 120, 430 95"/>
+        </g>
+      </svg>
+      <div class="ticket"><div><small>Заказ K7QX2M9A · Букет роз</small>Нура → Алматы</div><span class="l-status">Курьер в пути</span></div>
     </div>
   </div>
+</section>
 
-  <section>
-    <div class="card price-split">
-      <div class="total"><div class="p">750 ₸</div><div>доставка в черте Астаны</div></div>
-      <div><div class="p">до 2 кг</div><div class="muted">одежда, косметика, цветы,<br>документы, аксессуары</div></div>
-      <div><div class="p">5 районов</div><div class="muted">Алматы, Байконур, Есиль,<br>Сарыарка, Нура</div></div>
+<div class="l-marquee" aria-hidden="true"><div class="l-track">
+  <ul><li>750 ₸ по Астане</li><li>Свои курьеры</li><li>Посылки до 2 кг</li><li>Отслеживание онлайн</li><li>Оплата картой или наличными</li><li>Вручение лично в руки</li></ul>
+  <ul><li>750 ₸ по Астане</li><li>Свои курьеры</li><li>Посылки до 2 кг</li><li>Отслеживание онлайн</li><li>Оплата картой или наличными</li><li>Вручение лично в руки</li></ul>
+</div></div>
+<div class="l-marquee alt" aria-hidden="true"><div class="l-track">
+  <ul><li>Есиль</li><li>Алматы</li><li>Байконур</li><li>Сарыарка</li><li>Нура</li><li>Левый берег</li><li>Правый берег</li></ul>
+  <ul><li>Есиль</li><li>Алматы</li><li>Байконур</li><li>Сарыарка</li><li>Нура</li><li>Левый берег</li><li>Правый берег</li></ul>
+</div></div>
+
+<main>
+  <section class="l-section" id="how"><div class="wrap">
+    <div class="l-head">
+      <h2 class="reveal from-left"><span class="l-kicker">Как это работает</span>От заказа до вручения — четыре шага</h2>
+      <p class="reveal from-right">Продавец оформляет доставку за минуту, покупатель следит за посылкой по ссылке, курьер привозит её в руки.</p>
     </div>
-  </section>
-
-  <section>
-    <h2>Как это работает</h2>
-    <div class="grid steps">
-      <div class="card"><h3>Продавец создаёт заказ</h3><p class="muted">Указывает адрес покупателя и вес посылки — до 2 кг.</p></div>
-      <div class="card"><h3>Покупатель получает ссылку</h3><p class="muted">По ссылке он видит, где его посылка, и может оплатить доставку онлайн или курьеру.</p></div>
-      <div class="card"><h3>Курьер забирает и везёт</h3><p class="muted">Курьер забирает посылку у продавца и везёт по Астане. Статус обновляется в реальном времени.</p></div>
-      <div class="card"><h3>Вручение лично в руки</h3><p class="muted">Наш курьер отдаёт посылку получателю. За сохранность посылки от продавца до покупателя отвечаем мы.</p></div>
+    <div class="l-steps">
+      <div class="l-step reveal from-below" style="transition-delay:.05s"><div class="n"></div><h3>Заказ</h3><p>Продавец указывает адрес и имя покупателя, вес — до 2 кг.</p></div>
+      <div class="l-step reveal from-below" style="transition-delay:.15s"><div class="n"></div><h3>Ссылка покупателю</h3><p>Покупатель видит статус посылки и может оплатить доставку онлайн.</p></div>
+      <div class="l-step reveal from-below" style="transition-delay:.25s"><div class="n"></div><h3>Курьер в пути</h3><p>Наш курьер забирает посылку у продавца и везёт по городу.</p></div>
+      <div class="l-step reveal from-below" style="transition-delay:.35s"><div class="n"></div><h3>Вручение</h3><p>Курьер отдаёт посылку лично в руки. Статус обновляется сразу.</p></div>
     </div>
-  </section>
+  </div></section>
 
-  <section>
-    <h2>Условия</h2>
-    <div class="grid">
-      <div class="card"><h3>⚖️ До 2 кг</h3><p class="muted">Одежда, косметика, цветы, документы, аксессуары, небольшая электроника.</p></div>
-      <div class="card"><h3>📍 Только Астана</h3><p class="muted">Районы Алматы, Байконур, Есиль, Сарыарка, Нура.</p></div>
-      <div class="card"><h3>💳 Оплата</h3><p class="muted">Онлайн по ссылке или наличными курьеру при получении.</p></div>
-      <div class="card"><h3>🛟 Поддержка</h3><p class="muted">Чат с поддержкой в личном кабинете и в мобильном приложении.</p></div>
+  <section class="l-section tint" id="price"><div class="wrap">
+    <div class="l-price">
+      <div class="big reveal from-left">
+        <span class="l-kicker" style="color:var(--sun)">Тариф</span>
+        <div class="sum">750 ₸</div>
+        <p>Доставка в черте Астаны. Цена не зависит от района и расстояния — от Нуры до Сарыарки одинаково.</p>
+        <div class="l-districts"><span>Алматы</span><span>Байконур</span><span>Есиль</span><span>Сарыарка</span><span>Нура</span></div>
+      </div>
+      <ul class="reveal from-right">
+        <li><span>Вес посылки</span><b>до 2 кг</b></li>
+        <li><span>Что возим</span><b>одежда, косметика, цветы, документы</b></li>
+        <li><span>Оплата</span><b>картой онлайн или наличными курьеру</b></li>
+        <li><span>Поддержка</span><b>чат в кабинете и приложении</b></li>
+      </ul>
     </div>
-  </section>
+  </div></section>
 
-  <section id="track">
-    <div class="card">
-      <h2>Отследить посылку</h2>
-      <form class="row" onsubmit="event.preventDefault(); const c=this.code.value.trim(); if(c) location.href='/t/'+encodeURIComponent(c.toUpperCase())">
-        <input name="code" placeholder="Код заказа, например K7QX2M9A" style="flex:1;min-width:200px" autocomplete="off">
-        <button class="btn">Найти</button>
+  <section class="l-section" id="why"><div class="wrap">
+    <div class="l-head">
+      <h2 class="reveal from-left"><span class="l-kicker">Почему мы</span>Курьерская служба, которой доверяют посылки</h2>
+    </div>
+    <div class="l-why">
+      <article class="reveal from-left"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></div>
+        <div><h3>Свои курьеры</h3><p>Не случайные исполнители, а наши сотрудники. Каждый заказ закреплён за конкретным курьером.</p></div></article>
+      <article class="reveal from-right"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg></div>
+        <div><h3>Полная ответственность</h3><p>Отвечаем за посылку с момента, когда курьер её забрал, до вручения получателю.</p></div></article>
+      <article class="reveal from-left"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <div><h3>Статус в реальном времени</h3><p>Продавец и покупатель видят, где посылка: принята, курьер в пути, вручена.</p></div></article>
+      <article class="reveal from-right"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/></svg></div>
+        <div><h3>Удобная оплата</h3><p>Картой онлайн по ссылке или наличными курьеру при получении.</p></div></article>
+    </div>
+  </div></section>
+
+  <section class="l-section tint" id="track"><div class="wrap">
+    <div class="l-track-box reveal from-below">
+      <div><h2>Отследить посылку</h2><p>Введите код заказа из сообщения продавца.</p></div>
+      <form onsubmit="event.preventDefault(); const c=this.code.value.trim(); if(c) location.href='/t/'+encodeURIComponent(c.toUpperCase())">
+        <label for="trackCode" class="sr-only" style="position:absolute;left:-9999px">Код заказа</label>
+        <input id="trackCode" name="code" placeholder="Например, K7QX2M9A" autocomplete="off">
+        <button class="btn sun">Найти</button>
       </form>
     </div>
-  </section>
+  </div></section>
+
+  <section class="l-join"><div class="wrap">
+    <h2 class="reveal from-below">Продаёте в Instagram или WhatsApp? Подключитесь за две минуты</h2>
+    <p class="reveal from-below">Регистрация по номеру телефона. Первый заказ — сразу после входа.</p>
+    <a class="btn sun reveal from-below" href="/app#register-seller">Подключить магазин</a>
+  </div></section>
 </main>
-<footer><div class="wrap">© Жеткіз 750 · Астана · Курьерская доставка до 2 кг · <a href="/offer">Публичная оферта</a> · <a href="/privacy">Политика конфиденциальности</a></div></footer>
+
+<footer class="l-foot"><div class="wrap">
+  <a class="logo" href="/">Жеткіз <b>750</b></a>
+  <span>Курьерская доставка по Астане · до 2 кг · 750 ₸</span>
+  <span><a href="/offer">Публичная оферта</a> · <a href="/privacy">Политика конфиденциальности</a></span>
+</div></footer>
+
+<script>
+(function () {
+  var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Появление блоков сбоку при прокрутке
+  // Без анимации: курьер стоит на середине маршрута
+  if (reduce) { var r = document.getElementById('ride'); if (r) r.remove(); var c = document.getElementById('courier'); if (c) c.setAttribute('transform', 'translate(270 220)'); }
+  var items = document.querySelectorAll('.reveal');
+  if (reduce || !('IntersectionObserver' in window)) { items.forEach(function (el) { el.classList.add('shown'); }); }
+  else {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('shown'); io.unobserve(e.target); } });
+    }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+    items.forEach(function (el) { io.observe(el); });
+  }
+  // Сменяющееся слово: выезжает справа, уезжает влево
+  var words = ['цветы', 'одежду', 'документы', 'косметику', 'подарки', 'аксессуары'];
+  var slot = document.querySelector('.l-rotator .slot');
+  if (!slot || reduce) return;
+  var i = 0;
+  setInterval(function () {
+    var cur = slot.querySelector('span.in');
+    i = (i + 1) % words.length;
+    var next = document.createElement('span');
+    next.className = 'in'; next.textContent = words[i];
+    if (cur) { cur.className = 'out'; setTimeout(function () { cur.remove(); }, 500); }
+    slot.appendChild(next);
+  }, 2200);
+})();
+</script>
 <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
 </body>
 </html>
