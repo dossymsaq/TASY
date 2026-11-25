@@ -1,4 +1,5 @@
 import React from 'react';
+import { Linking } from 'react-native';
 import { API_URL, api, phone } from '../api';
 import { Scroll } from '../common';
 import { useNav } from '../nav';
@@ -11,6 +12,8 @@ export default function Profile() {
   const [f, setF] = React.useState({ name: user.name, shop_name: user.shop_name || '', pickup_address: user.pickup_address || '' });
   const [err, setErr] = React.useState('');
   const [ok, setOk] = React.useState(false);
+  const [tg, setTg] = React.useState(null);
+  React.useEffect(() => { api('GET', '/me').then((r) => setTg(r.telegram)).catch(() => {}); }, []);
   const save = async () => {
     setErr(''); setOk(false);
     try { const r = await api('PATCH', '/me', f); setUser(r.user); setOk(true); } catch (e) { setErr(e.message); }
@@ -30,6 +33,15 @@ export default function Profile() {
         <Button title="Сохранить" onPress={save} />
         <Button kind="ghost" title="Выйти" onPress={logout} />
       </Card>
+      {tg?.bot ? (
+        <Card style={{ gap: 8 }}>
+          {tg.linked ? <T>✅ Уведомления в Telegram подключены</T> : <>
+            <T>Получайте статусы заказов в Telegram — бесплатно.</T>
+            <Button title="Подключить Telegram" style={{ backgroundColor: '#229ed9' }} onPress={() => Linking.openURL(`https://t.me/${tg.bot}`)} />
+            <T muted size={13}>В боте нажмите «Поделиться номером».</T>
+          </>}
+        </Card>
+      ) : null}
       <T muted size={12} style={{ textAlign: 'center' }}>Сервер: {API_URL}</T>
     </Scroll>
   );

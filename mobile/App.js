@@ -66,7 +66,7 @@ function Main() {
       <T bold size={18}>{bootErr}</T><T muted>Проверьте интернет и попробуйте снова</T><Button title="Повторить" onPress={start} />
     </View>
   );
-  if (!user) return <Nav.Provider value={nav}><Auth onLogin={setUser} /></Nav.Provider>;
+  if (!user) return <Nav.Provider value={nav}><Auth onLogin={setUser} cfg={cfg} /></Nav.Provider>;
 
   const tabs = TABS[user.role];
   const top = stack[stack.length - 1];

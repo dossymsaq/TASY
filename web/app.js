@@ -60,15 +60,42 @@ document.addEventListener('submit', async (e) => {
   finally { if (btn) btn.disabled = false; }
 });
 
+const forms = {};
 // ---------- auth: вход по SMS-коду (основной) и по паролю (для сотрудников) ----------
 const OTP = { phone: '', is_new: false, dev_code: '', role: location.hash === '#register-seller' ? 'seller' : 'client' };
-function authView(mode = 'sms') {
+function authView(mode = S.cfg?.telegram_bot ? 'tg' : 'sms') {
+  if (mode !== 'tgwait') clearInterval(TG.timer);
   $tabs.innerHTML = '';
   document.getElementById('who').textContent = '';
-  const tab = (m, t) => `<button class="${mode === m || (m === 'sms' && mode === 'code') ? 'on' : ''}" data-act="authMode" data-m="${m}">${t}</button>`;
+  const tab = (m, t) => `<button class="${mode === m || (m === 'sms' && mode === 'code') || (m === 'tg' && mode.startsWith('tg')) ? 'on' : ''}" data-act="authMode" data-m="${m}">${t}</button>`;
   const roleBtn = (r, t) => `<button type="button" class="${OTP.role === r ? 'on' : ''}" data-act="otpRole" data-r="${r}">${t}</button>`;
   let body;
-  if (mode === 'password') body = `
+  if (mode === 'tg') body = `
+      <div class="stack">
+        <p class="small muted" style="margin:0">Самый быстрый способ: откроется наш бот, нажмите в нём «Поделиться номером» — и вы вошли. Туда же будут приходить статусы заказов.</p>
+        <button class="btn block" data-act="tgStart" style="background:#229ed9">Войти через Telegram</button>
+        <div class="err"></div>
+      </div>`;
+  else if (mode === 'tgwait') body = `
+      <div class="stack" style="text-align:center">
+        <p style="margin:0">Откройте бота и нажмите <b>«📱 Поделиться номером»</b>.</p>
+        <a class="btn block" href="${esc(TG.url)}" target="_blank" rel="noopener" style="background:#229ed9">Открыть Telegram</a>
+        <p class="small muted" style="margin:0">Ожидаем подтверждения… Эта страница обновится сама.</p>
+        <button class="btn ghost block" data-act="authMode" data-m="tg">Отмена</button>
+      </div>`;
+  else if (mode === 'tgprofile') body = `
+      <form data-form="tgProfile" class="stack">
+        <p style="margin:0">Номер <b>${phone(TG.phone)}</b> подтверждён ✅</p>
+        ${TG.is_admin ? '<p class="small muted" style="margin:0">Этот номер — администратор сервиса.</p>' : `
+          <p class="small muted" style="margin:0">Вы у нас впервые — заполните профиль.</p>
+          <nav class="tabs" style="padding:0">${roleBtn('client', 'Я покупатель')}${roleBtn('seller', 'Я продавец')}</nav>`}
+        <div><label>Ваше имя</label><input name="name" value="${esc(TG.first_name)}" required></div>
+        ${OTP.role === 'seller' && !TG.is_admin ? `
+          <div><label>Название магазина</label><input name="shop_name" required></div>
+          <div><label>Адрес, откуда забирать товар</label><input name="pickup_address" placeholder="Улица, дом, офис" required></div>` : ''}
+        <div class="err"></div><button class="btn block">Готово</button>
+      </form>`;
+  else if (mode === 'password') body = `
       <form data-form="login" class="stack">
         <div><label>Телефон</label><input name="phone" type="tel" placeholder="+7 7XX XXX XX XX" required></div>
         <div><label>Пароль</label><input name="password" type="password" required></div>
@@ -99,17 +126,39 @@ function authView(mode = 'sms') {
         <div class="err"></div><button class="btn block">Получить код</button>
       </form>`;
   $view.innerHTML = `<div class="card" style="max-width:480px;margin:24px auto">
-    <nav class="tabs" style="padding-top:0">${tab('sms', 'Вход по SMS')}${tab('password', 'По паролю')}</nav>${body}</div>`;
+    <nav class="tabs" style="padding-top:0">${S.cfg?.telegram_bot ? tab('tg', 'Telegram') : ''}${tab('sms', 'SMS')}${tab('password', 'Пароль')}</nav>${body}</div>`;
+  S.authMode = mode;
 }
+const TG = { token: '', url: '', timer: null, phone: '', first_name: '', is_admin: false };
+actions.tgStart = async () => {
+  const win = window.open('', '_blank'); // открываем окно сразу, иначе браузер заблокирует всплывающее окно
+  try {
+    const r = await api('POST', '/auth/telegram/start');
+    Object.assign(TG, { token: r.token, url: r.url });
+    if (win) win.location.href = r.url; else location.href = r.url;
+  } catch (e) { win?.close(); throw e; }
+  authView('tgwait');
+  TG.timer = setInterval(tgCheck, 2000);
+};
+async function tgCheck(profile) {
+  let r;
+  try { r = await api('POST', '/auth/telegram/check', { token: TG.token, ...(profile || {}) }); }
+  catch (e) { clearInterval(TG.timer); if (!profile) { authView('tg'); toast(e.message); return; } throw e; }
+  if (r.status === 'pending') return;
+  clearInterval(TG.timer);
+  if (r.status === 'need_profile') { Object.assign(TG, r); return authView('tgprofile'); }
+  store.token = r.token; history.replaceState(null, '', '/app'); start();
+}
+forms.tgProfile = async (f) => { await tgCheck({ ...f, role: OTP.role }); };
 actions.authMode = (d) => authView(d.m);
 actions.otpRole = (d) => {
   const name = $view.querySelector('[name=name]')?.value || '';
   const code = $view.querySelector('[name=code]')?.value || '';
-  OTP.role = d.r; authView('code');
-  $view.querySelector('[name=name]').value = name; $view.querySelector('[name=code]').value = code;
+  OTP.role = d.r; authView(S.authMode === 'tgprofile' ? 'tgprofile' : 'code');
+  $view.querySelector('[name=name]').value = name;
+  const c = $view.querySelector('[name=code]'); if (c) c.value = code;
 };
 const normPhoneLocal = (p) => { let d = String(p).replace(/\D/g, ''); if (d.length === 11 && d[0] === '8') d = '7' + d.slice(1); if (d.length === 10) d = '7' + d; return d; };
-const forms = {};
 forms.otpRequest = async (f) => {
   const r = await api('POST', '/auth/otp/request', { phone: f.phone });
   Object.assign(OTP, { phone: normPhoneLocal(f.phone), is_new: r.is_new, dev_code: r.dev_code || '' });
@@ -155,6 +204,9 @@ VIEWS.common.profile = async () => {
         <div><label>Адрес забора по умолчанию</label><input name="pickup_address" value="${esc(u.pickup_address)}" required></div>` : ''}
       <div class="err"></div>
       <div class="row"><button class="btn">Сохранить</button><button type="button" class="btn ghost" data-act="logout">Выйти</button></div>
+      ${S.tg?.bot ? `<div class="card" style="background:var(--bg)">${S.tg.linked
+        ? '✅ Уведомления в Telegram подключены'
+        : `<p style="margin-top:0">Получайте статусы заказов в Telegram — бесплатно.</p><a class="btn" style="background:#229ed9" target="_blank" rel="noopener" href="https://t.me/${esc(S.tg.bot)}">Подключить Telegram</a><p class="small muted" style="margin-bottom:0">В боте нажмите «Поделиться номером».</p>`}</div>` : ''}
     </form></div>`;
 };
 forms.profile = async (f) => { S.user = (await api('PATCH', '/me', f)).user; toast('Сохранено'); renderTabs(); };
@@ -436,7 +488,7 @@ async function start() {
   try { S.cfg = S.cfg || await api('GET', '/config'); }
   catch { $view.innerHTML = '<div class="card err">Сервер недоступен</div>'; return; }
   if (!store.token) return authView();
-  try { S.user = (await api('GET', '/me')).user; }
+  try { const me = await api('GET', '/me'); S.user = me.user; S.tg = me.telegram; }
   catch { store.token = null; return authView(); }
   go(TABS[S.user.role][0][0]);
 }

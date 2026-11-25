@@ -5,6 +5,7 @@ const cfg = require('./config');
 const { db, hashPassword, checkPassword, tx } = require('./db');
 const payments = require('./payments');
 const sms = require('./sms');
+const tg = require('./telegram');
 
 const app = express();
 app.use(express.json({ limit: '100kb' }));
@@ -49,6 +50,40 @@ function setStatus(order, status, note, actorId, extra = {}) {
   if (status === 'delivered') sets.push("delivered_at = datetime('now')");
   db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...vals, order.id);
   logEvent(order.id, status, note, actorId);
+  setImmediate(() => notifyStatus(order.id, status));
+}
+
+// ---------- уведомления в Telegram ----------
+function notifyStatus(orderId, status) {
+  if (!tg.state.enabled) return;
+  const o = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  if (!o) return;
+  const seller = db.prepare('SELECT phone, shop_name, name FROM users WHERE id = ?').get(o.seller_id);
+  const courier = o.courier_id ? db.prepare('SELECT phone, name FROM users WHERE id = ?').get(o.courier_id) : null;
+  const shop = seller.shop_name || seller.name;
+  const link = `${cfg.PUBLIC_URL}/t/${o.code}`;
+  const toSeller = (t) => tg.notifyPhone(seller.phone, t);
+  const toBuyer = (t) => tg.notifyPhone(o.buyer_phone, t);
+  if (status === 'ready') {
+    toSeller(`💳 Заказ ${o.code} оплачен. Ищем курьера.`);
+    toBuyer(`📦 Вам едет заказ от «${shop}».\n${o.buyer_paid ? 'Доставка оплачена.' : `Оплата доставки ${cfg.PRICE_BUYER} ₸ — онлайн или курьеру.`}\nОтслеживание и код получения: ${link}`);
+    const couriers = db.prepare(`SELECT l.chat_id FROM users u JOIN telegram_links l ON l.phone = u.phone WHERE u.role = 'courier' AND u.active = 1`).all();
+    for (const c of couriers) tg.send(c.chat_id, `🔔 Новый заказ ${o.code}: р-н ${o.district}, ${o.weight_kg} кг.\nЗабор: ${o.pickup_address}\nОткройте приложение, чтобы взять его.`);
+  } else if (status === 'assigned' && courier) {
+    toSeller(`🛵 Заказ ${o.code}: курьер ${courier.name} (+${courier.phone}) едет за посылкой.`);
+    toBuyer(`🛵 Курьер ${courier.name} назначен на ваш заказ от «${shop}». ${link}`);
+    tg.notifyPhone(courier.phone, `Вам назначен заказ ${o.code}. Забор: ${o.pickup_address}`);
+  } else if (status === 'picked_up') {
+    toSeller(`🚚 Курьер забрал заказ ${o.code}.`);
+    toBuyer(`🚚 Курьер везёт вашу посылку от «${shop}».\nКод получения: ${o.confirm_code} — назовите его курьеру при получении.\n${link}`);
+  } else if (status === 'delivered') {
+    toSeller(`✅ Заказ ${o.code} доставлен покупателю ${o.buyer_name}.`);
+    toBuyer(`✅ Посылка от «${shop}» вручена. Спасибо, что выбрали Жеткіз 750!`);
+  } else if (status === 'cancelled') {
+    toSeller(`❌ Заказ ${o.code} отменён.`);
+    toBuyer(`❌ Доставка заказа от «${shop}» отменена.`);
+    if (courier) tg.notifyPhone(courier.phone, `❌ Заказ ${o.code} отменён.`);
+  }
 }
 function getOrder(id) {
   const o = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
@@ -118,7 +153,7 @@ api.get('/config', (req, res) => res.json({
   city: cfg.CITY, price_seller: cfg.PRICE_SELLER, price_buyer: cfg.PRICE_BUYER,
   price_total: cfg.PRICE_SELLER + cfg.PRICE_BUYER, max_weight_kg: cfg.MAX_WEIGHT_KG,
   districts: cfg.DISTRICTS, statuses: cfg.STATUSES, payment_mode: payments.MODE,
-  courier_fee: cfg.COURIER_FEE, sms_mode: sms.MODE,
+  courier_fee: cfg.COURIER_FEE, sms_mode: sms.MODE, telegram_bot: tg.state.username,
 }));
 
 api.post('/auth/register', (req, res) => {
@@ -142,6 +177,44 @@ api.post('/auth/login', (req, res) => {
   if (!user || !checkPassword(String(req.body?.password || ''), user.password_hash)) fail(401, 'Неверный телефон или пароль');
   if (!user.active) fail(403, 'Аккаунт заблокирован');
   res.json({ token: newSession(user.id), user: publicUser(user) });
+});
+
+// Создание пользователя, чей номер уже подтверждён (SMS или Telegram)
+function createVerifiedUser(phone, b) {
+  const isAdmin = cfg.ADMIN_PHONES.includes(phone);
+  const role = isAdmin ? 'admin' : b.role === 'seller' ? 'seller' : 'client';
+  const name = str(b.name, 'Имя', 100);
+  const shop = role === 'seller' ? str(b.shop_name, 'Название магазина', 100) : null;
+  const pickup = role === 'seller' ? str(b.pickup_address, 'Адрес забора товара') : null;
+  const r = db.prepare('INSERT INTO users (role,name,phone,shop_name,pickup_address,password_hash) VALUES (?,?,?,?,?,?)')
+    .run(role, name, phone, shop, pickup, hashPassword(crypto.randomBytes(24).toString('hex')));
+  return db.prepare('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid);
+}
+
+// ---------- вход через Telegram ----------
+// 1) /auth/telegram/start → ссылка t.me/<бот>?start=<token>
+// 2) пользователь в боте делится номером → запрос подтверждён
+// 3) приложение опрашивает /auth/telegram/check → токен сессии
+api.post('/auth/telegram/start', (req, res) => {
+  if (!tg.state.username) fail(503, 'Вход через Telegram пока не настроен');
+  const token = crypto.randomBytes(16).toString('hex');
+  db.prepare("INSERT INTO tg_logins (token, expires_at) VALUES (?, datetime('now', '+10 minutes'))").run(token);
+  res.json({ token, url: `https://t.me/${tg.state.username}?start=${token}` });
+});
+api.post('/auth/telegram/check', (req, res) => {
+  const b = req.body || {};
+  const l = db.prepare("SELECT * FROM tg_logins WHERE token = ? AND expires_at > datetime('now')").get(String(b.token || ''));
+  if (!l || l.status === 'used') fail(410, 'Время входа истекло. Попробуйте ещё раз.');
+  if (l.status === 'pending') return res.json({ status: 'pending' });
+  let user = db.prepare('SELECT * FROM users WHERE phone = ?').get(l.phone);
+  let created = false;
+  if (!user) {
+    if (!b.name) return res.json({ status: 'need_profile', phone: l.phone, first_name: l.first_name || '', is_admin: cfg.ADMIN_PHONES.includes(l.phone) });
+    user = createVerifiedUser(l.phone, b); created = true;
+  }
+  if (!user.active) fail(403, 'Аккаунт заблокирован');
+  db.prepare("UPDATE tg_logins SET status = 'used' WHERE token = ?").run(l.token);
+  res.json({ status: 'ok', token: newSession(user.id), user: publicUser(user), created });
 });
 
 // ---------- вход по SMS-коду ----------
@@ -177,16 +250,7 @@ api.post('/auth/otp/verify', (req, res) => {
   }
   let user = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
   let created = false;
-  if (!user) { // регистрация по SMS
-    const role = b.role === 'seller' ? 'seller' : 'client';
-    const name = str(b.name, 'Имя', 100);
-    const shop = role === 'seller' ? str(b.shop_name, 'Название магазина', 100) : null;
-    const pickup = role === 'seller' ? str(b.pickup_address, 'Адрес забора товара') : null;
-    const r = db.prepare('INSERT INTO users (role,name,phone,shop_name,pickup_address,password_hash) VALUES (?,?,?,?,?,?)')
-      .run(role, name, phone, shop, pickup, hashPassword(crypto.randomBytes(24).toString('hex')));
-    user = db.prepare('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid);
-    created = true;
-  }
+  if (!user) { user = createVerifiedUser(phone, b); created = true; } // регистрация по SMS
   if (!user.active) fail(403, 'Аккаунт заблокирован');
   db.prepare('UPDATE otp_codes SET used = 1 WHERE id = ?').run(otp.id);
   res.status(created ? 201 : 200).json({ token: newSession(user.id), user: publicUser(user), created });
@@ -197,7 +261,10 @@ api.post('/auth/logout', auth(), (req, res) => {
   res.json({ ok: true });
 });
 
-api.get('/me', auth(), (req, res) => res.json({ user: publicUser(req.user) }));
+api.get('/me', auth(), (req, res) => {
+  const linked = !!db.prepare('SELECT 1 FROM telegram_links WHERE phone = ?').get(req.user.phone);
+  res.json({ user: publicUser(req.user), telegram: { linked, bot: tg.state.username } });
+});
 
 api.patch('/me', auth(), (req, res) => {
   const b = req.body || {};
@@ -467,6 +534,8 @@ api.post('/tickets', optionalAuth, (req, res) => {
     db.prepare('INSERT INTO ticket_messages (ticket_id,author_id,author_role,author_name,body) VALUES (?,?,?,?,?)').run(r.lastInsertRowid, u?.id ?? null, u?.role || 'guest', contactName, body);
     return r.lastInsertRowid;
   });
+  const staffChats = db.prepare(`SELECT l.chat_id FROM users u JOIN telegram_links l ON l.phone = u.phone WHERE u.role IN ('support','admin') AND u.active = 1`).all();
+  for (const c of staffChats) tg.send(c.chat_id, `🆘 Новое обращение #${id}: ${subject}\nОт: ${contactName}, +${contactPhone}\n\n${body.slice(0, 500)}`);
   res.status(201).json({ ticket: { id } });
 });
 const ticketList = (where, ...args) => db.prepare(`SELECT t.*, o.code order_code,
@@ -499,6 +568,7 @@ api.post('/tickets/:id/messages', auth(), (req, res) => {
     db.prepare('INSERT INTO ticket_messages (ticket_id,author_id,author_role,author_name,body) VALUES (?,?,?,?,?)').run(t.id, req.user.id, req.user.role, req.user.name, body);
     db.prepare("UPDATE tickets SET status = ?, updated_at = datetime('now') WHERE id = ?").run(status, t.id);
   });
+  if (staff(req.user) && t.contact_phone) tg.notifyPhone(t.contact_phone, `💬 Ответ поддержки по обращению #${t.id} «${t.subject}»:\n\n${body.slice(0, 1000)}`);
   res.json({ ok: true });
 });
 api.post('/tickets/:id/close', auth(), (req, res) => {
@@ -523,5 +593,6 @@ app.use((err, req, res, next) => {
 
 if (require.main === module) {
   app.listen(cfg.PORT, () => console.log(`Жеткіз 750 запущен: http://localhost:${cfg.PORT}`));
+  tg.start();
 }
 module.exports = app;

@@ -6,6 +6,10 @@ module.exports = {
   PRICE_SELLER: 750, // платит продавец (наш клиент)
   PRICE_BUYER: 750,  // платит покупатель продавца
   MAX_WEIGHT_KG: 2,
+  // Адрес сайта — для ссылок в уведомлениях (например, https://jetkiz750.kz)
+  PUBLIC_URL: (process.env.PUBLIC_URL || 'http://localhost:3000').replace(/\/$/, ''),
+  // Номера, которые при первом входе получают роль администратора (через запятую)
+  ADMIN_PHONES: String(process.env.ADMIN_PHONES || '').split(',').map((p) => p.replace(/\D/g, '').replace(/^8(?=\d{10}$)/, '7')).filter(Boolean),
   // Сколько получает курьер за одну доставку (остальное — доход сервиса)
   COURIER_FEE: Number(process.env.COURIER_FEE || 1000),
   // Вход по SMS-коду

@@ -120,6 +120,25 @@ CREATE TABLE IF NOT EXISTS otp_codes (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_otp_phone ON otp_codes(phone);
+
+-- Telegram: какой чат принадлежит какому номеру (номер подтверждён Telegram)
+CREATE TABLE IF NOT EXISTS telegram_links (
+  phone TEXT PRIMARY KEY,
+  chat_id INTEGER NOT NULL,
+  tg_user_id INTEGER NOT NULL,
+  first_name TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+-- Запросы на вход через Telegram
+CREATE TABLE IF NOT EXISTS tg_logins (
+  token TEXT PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'pending',  -- pending | confirmed | used
+  chat_id INTEGER,
+  phone TEXT,
+  first_name TEXT,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `);
 
 function hashPassword(password) {
