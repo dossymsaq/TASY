@@ -4,3 +4,6 @@ mobile/.expo/
 mobile/dist/
 mobile/ios/
 mobile/android/
+
+server/.env
+windows/tools/

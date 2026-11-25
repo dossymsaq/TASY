@@ -68,7 +68,11 @@ TELEGRAM_BOT_TOKEN=<токен> PUBLIC_URL=https://ваш-домен.kz ADMIN_PH
 
 Защита: код действует 5 минут, 5 попыток ввода, повторная отправка не чаще раза в минуту, не больше 5 SMS на номер в час.
 
-## Запуск
+## Запуск на Windows без домена и хостинга
+
+Пошаговая инструкция: [WINDOWS.md](WINDOWS.md). Коротко: дважды щёлкнуть `start-windows.bat`.
+
+## Запуск для разработки
 
 ```bash
 cd server && npm install && npm start      # http://localhost:3000

@@ -3,7 +3,11 @@
 //   и возвращается в ответе API (поле dev_code) — только для разработки!
 // SMS_MODE=mobizon — отправка через Mobizon (mobizon.kz), нужен MOBIZON_API_KEY.
 //   Интеграция написана по документации Mobizon и ещё не проверена на реальном ключе.
-const MODE = process.env.SMS_MODE || 'mock';
+// SMS_MODE=off — вход по SMS выключен.
+// В рабочем режиме (DEMO=0) тестовый режим mock запрещён: иначе любой мог бы войти под чужим номером.
+const { DEMO } = require('./config');
+let MODE = process.env.SMS_MODE || (DEMO ? 'mock' : 'off');
+if (MODE === 'mock' && !DEMO) MODE = 'off';
 
 async function sendSms(phone, text) {
   if (MODE === 'mock') {

@@ -153,7 +153,7 @@ api.get('/config', (req, res) => res.json({
   city: cfg.CITY, price_seller: cfg.PRICE_SELLER, price_buyer: cfg.PRICE_BUYER,
   price_total: cfg.PRICE_SELLER + cfg.PRICE_BUYER, max_weight_kg: cfg.MAX_WEIGHT_KG,
   districts: cfg.DISTRICTS, statuses: cfg.STATUSES, payment_mode: payments.MODE,
-  courier_fee: cfg.COURIER_FEE, sms_mode: sms.MODE, telegram_bot: tg.state.username,
+  courier_fee: cfg.COURIER_FEE, sms_mode: sms.MODE, demo: cfg.DEMO, telegram_bot: tg.state.username,
 }));
 
 api.post('/auth/register', (req, res) => {
@@ -220,6 +220,7 @@ api.post('/auth/telegram/check', (req, res) => {
 // ---------- вход по SMS-коду ----------
 const otpHash = (phone, code) => crypto.createHash('sha256').update(`${phone}:${code}`).digest();
 api.post('/auth/otp/request', async (req, res) => {
+  if (sms.MODE === 'off') fail(503, 'Вход по SMS не настроен. Войдите через Telegram.');
   const phone = normPhone(req.body?.phone);
   const last = db.prepare("SELECT (julianday('now') - julianday(created_at)) * 86400 AS s FROM otp_codes WHERE phone = ? ORDER BY id DESC LIMIT 1").get(phone);
   if (last && last.s < cfg.OTP_RESEND_SEC) fail(429, `Новый код можно запросить через ${Math.ceil(cfg.OTP_RESEND_SEC - last.s)} сек`);

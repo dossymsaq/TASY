@@ -7,7 +7,7 @@ const norm = (p) => { let d = String(p).replace(/\D/g, ''); if (d.length === 11 
 
 // Вход: по SMS-коду (основной) или по паролю (сотрудники)
 export default function Auth({ onLogin, cfg }) {
-  const [mode, setMode] = React.useState(cfg?.telegram_bot ? 'tg' : 'sms'); // tg | tgwait | tgprofile | sms | code | password
+  const [mode, setMode] = React.useState(cfg?.telegram_bot ? 'tg' : cfg?.sms_mode !== 'off' ? 'sms' : 'password'); // tg | tgwait | tgprofile | sms | code | password
   const [tg, setTg] = React.useState({ token: '', url: '', phone: '', is_admin: false });
   const [f, setF] = React.useState({ phone: '', password: '', code: '', name: '', shop_name: '', pickup_address: '' });
   const [otp, setOtp] = React.useState({ is_new: false, dev_code: '', role: 'client' });
@@ -65,7 +65,7 @@ export default function Auth({ onLogin, cfg }) {
           <T muted style={{ textAlign: 'center', marginTop: 6 }}>Доставка по Астане до 2 кг.{'\n'}750 ₸ платит продавец + 750 ₸ покупатель</T>
         </View>
         <Chips value={mode === 'code' ? 'sms' : mode.startsWith('tg') ? 'tg' : mode} onChange={go}
-          options={[...(cfg?.telegram_bot ? [['tg', 'Telegram']] : []), ['sms', 'SMS'], ['password', 'Пароль']]} />
+          options={[...(cfg?.telegram_bot ? [['tg', 'Telegram']] : []), ...(cfg?.sms_mode !== 'off' ? [['sms', 'SMS']] : []), ['password', 'Пароль']]} />
         <Card style={{ gap: 12 }}>
           {mode === 'tg' ? <>
             <H>Вход через Telegram</H>
@@ -126,7 +126,7 @@ export default function Auth({ onLogin, cfg }) {
             <Input label="Пароль" value={f.password} onChangeText={set('password')} secureTextEntry />
             <Err>{err}</Err>
             <Button title="Войти" onPress={login} />
-            <T muted size={12}>Демо: продавец 77000000004/seller123 · покупатель 77000000005/client123 · курьер 77000000003/courier123 · админ 77000000001/admin123 · поддержка 77000000002/support123</T>
+            {cfg?.demo ? <T muted size={12}>Демо: продавец 77000000004/seller123 · покупатель 77000000005/client123 · курьер 77000000003/courier123 · админ 77000000001/admin123 · поддержка 77000000002/support123</T> : null}
           </> : null}
         </Card>
       </ScrollView>

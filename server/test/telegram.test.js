@@ -42,7 +42,7 @@ before(async () => {
   await new Promise((r) => fakeServer.listen(0, r));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jetkiz-'));
   Object.assign(process.env, {
-    DB_FILE: path.join(tmp, 'test.sqlite'), TELEGRAM_BOT_TOKEN: 'TEST',
+    DB_FILE: path.join(tmp, 'test.sqlite'), DEMO: '1', TELEGRAM_BOT_TOKEN: 'TEST',
     TELEGRAM_API: `http://127.0.0.1:${fakeServer.address().port}`, ADMIN_PHONES: '8 700 999 00 11',
     PUBLIC_URL: 'https://jetkiz750.kz',
   });

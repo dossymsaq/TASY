@@ -1,5 +1,12 @@
 // Бизнес-правила сервиса «Жеткіз 750»
+// Настройки можно задать в файле server/.env (пример — server/.env.example)
+// или в файле, путь к которому указан в ENV_FILE. Переменные окружения, заданные при запуске, важнее файла.
+try { process.loadEnvFile(process.env.ENV_FILE || __dirname + '/.env'); } catch { /* файла нет — работаем с переменными окружения */ }
+
 module.exports = {
+  // Демо-режим: тестовые аккаунты с простыми паролями и SMS-коды на экране.
+  // На сервере, доступном из интернета, обязательно DEMO=0!
+  DEMO: process.env.DEMO !== '0',
   PORT: Number(process.env.PORT || 3000),
   DB_FILE: process.env.DB_FILE || __dirname + '/data.sqlite',
   CITY: 'Астана',

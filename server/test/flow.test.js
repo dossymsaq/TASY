@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jetkiz-'));
 process.env.DB_FILE = path.join(tmp, 'test.sqlite');
+process.env.DEMO = '1';
 const app = require('../index');
 
 let server, base;

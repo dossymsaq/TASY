@@ -1,6 +1,6 @@
 const { DatabaseSync } = require('node:sqlite');
 const crypto = require('node:crypto');
-const { DB_FILE } = require('./config');
+const { DB_FILE, DEMO } = require('./config');
 
 const db = new DatabaseSync(DB_FILE);
 db.exec(`
@@ -160,6 +160,7 @@ function tx(fn) {
 
 // Демо-аккаунты при первом запуске
 function seed() {
+  if (!DEMO) return;
   const { n } = db.prepare('SELECT COUNT(*) AS n FROM users').get();
   if (n > 0) return;
   const ins = db.prepare(`INSERT INTO users (role,name,phone,shop_name,pickup_address,password_hash) VALUES (?,?,?,?,?,?)`);

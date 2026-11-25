@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jetkiz-'));
 process.env.DB_FILE = path.join(tmp, 'test.sqlite');
+process.env.DEMO = '1';
 process.env.SMS_MODE = 'mock';
 const app = require('../index');
 const { db } = require('../db');

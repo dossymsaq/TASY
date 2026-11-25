@@ -63,7 +63,7 @@ document.addEventListener('submit', async (e) => {
 const forms = {};
 // ---------- auth: вход по SMS-коду (основной) и по паролю (для сотрудников) ----------
 const OTP = { phone: '', is_new: false, dev_code: '', role: location.hash === '#register-seller' ? 'seller' : 'client' };
-function authView(mode = S.cfg?.telegram_bot ? 'tg' : 'sms') {
+function authView(mode = S.cfg?.telegram_bot ? 'tg' : S.cfg?.sms_mode !== 'off' ? 'sms' : 'password') {
   if (mode !== 'tgwait') clearInterval(TG.timer);
   $tabs.innerHTML = '';
   document.getElementById('who').textContent = '';
@@ -100,7 +100,7 @@ function authView(mode = S.cfg?.telegram_bot ? 'tg' : 'sms') {
         <div><label>Телефон</label><input name="phone" type="tel" placeholder="+7 7XX XXX XX XX" required></div>
         <div><label>Пароль</label><input name="password" type="password" required></div>
         <div class="err"></div><button class="btn block">Войти</button>
-        <p class="small muted">Демо: продавец 77000000004 / seller123, покупатель 77000000005 / client123, курьер 77000000003 / courier123, админ 77000000001 / admin123, поддержка 77000000002 / support123</p>
+        ${S.cfg?.demo ? `<p class="small muted">Демо: продавец 77000000004 / seller123, покупатель 77000000005 / client123, курьер 77000000003 / courier123, админ 77000000001 / admin123, поддержка 77000000002 / support123</p>` : ''}
       </form>`;
   else if (mode === 'code') body = `
       <form data-form="otpVerify" class="stack">
@@ -126,7 +126,7 @@ function authView(mode = S.cfg?.telegram_bot ? 'tg' : 'sms') {
         <div class="err"></div><button class="btn block">Получить код</button>
       </form>`;
   $view.innerHTML = `<div class="card" style="max-width:480px;margin:24px auto">
-    <nav class="tabs" style="padding-top:0">${S.cfg?.telegram_bot ? tab('tg', 'Telegram') : ''}${tab('sms', 'SMS')}${tab('password', 'Пароль')}</nav>${body}</div>`;
+    <nav class="tabs" style="padding-top:0">${S.cfg?.telegram_bot ? tab('tg', 'Telegram') : ''}${S.cfg?.sms_mode !== 'off' ? tab('sms', 'SMS') : ''}${tab('password', 'Пароль')}</nav>${body}</div>`;
   S.authMode = mode;
 }
 const TG = { token: '', url: '', timer: null, phone: '', first_name: '', is_admin: false };
