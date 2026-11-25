@@ -18,12 +18,15 @@ export function Dashboard() {
         <View style={s.row}>
           <Stat v={money(d.revenue)} l="выручка всего" />
           <Stat v={money(d.revenueToday)} l="выручка сегодня" />
+          <Stat v={money(d.profit)} l="прибыль после оплаты курьерам" />
+          <Stat v={money(d.profitToday)} l="прибыль сегодня" />
           <Stat v={d.ordersToday} l="заказов сегодня" />
           <Stat v={d.deliveredToday} l="доставлено сегодня" />
           <Stat v={(d.byStatus.ready || 0) + (d.byStatus.assigned || 0) + (d.byStatus.picked_up || 0)} l="в работе" />
           <Stat v={d.byStatus.new || 0} l="ждут оплаты продавца" />
           <Stat v={d.openTickets} l="открытых обращений" />
           <Stat v={money(d.cash)} l="наличные у курьеров" />
+          <Stat v={money(d.owedToCouriers)} l="к выплате курьерам" />
         </View>
         <Card>
           <H>Выручка за 14 дней</H>
@@ -90,14 +93,19 @@ export function Assign({ order, onDone }) {
 }
 
 export function Couriers() {
+  const { push, cfg } = useNav();
   const { data, error, refreshing, load } = useLoad(() => api('GET', '/admin/couriers'));
   return (
     <Scroll refreshing={refreshing} onRefresh={load} error={error}>
+      <T muted size={13}>Курьер получает {money(cfg.courier_fee)} за доставку. Нажмите на курьера, чтобы принять наличные или сделать выплату.</T>
       {data?.couriers.map((c) => (
-        <Card key={c.id}>
-          <View style={s.between}><T bold>{c.name}</T><T color={c.active ? '#1f9d55' : '#c27c00'} bold size={13}>{c.active ? 'активен' : 'заблокирован'}</T></View>
-          <T muted size={14}>{phone(c.phone)} · в работе: {c.active_orders} · доставлено: {c.delivered}</T>
-        </Card>
+        <Pressable key={c.id} onPress={() => push('courierMoney', { id: c.id, title: c.name, onDone: load })}>
+          <Card>
+            <View style={s.between}><T bold>{c.name}</T><T color={c.active ? '#1f9d55' : '#c27c00'} bold size={13}>{c.active ? 'активен' : 'заблокирован'}</T></View>
+            <T muted size={14}>{phone(c.phone)} · в работе: {c.active_orders} · доставлено: {c.delivered}</T>
+            <T size={14}>Сегодня: {money(c.earned_today)} · наличные: <T bold color={c.cash_in_hand ? '#c27c00' : undefined}>{money(c.cash_in_hand)}</T> · баланс: <T bold color={c.balance > 0 ? '#1f9d55' : c.balance < 0 ? '#d63c3c' : undefined}>{c.balance < 0 ? '−' : ''}{money(Math.abs(c.balance))}</T></T>
+          </Card>
+        </Pressable>
       ))}
     </Scroll>
   );

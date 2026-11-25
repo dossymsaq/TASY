@@ -91,6 +91,35 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
   body TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Расчёты с курьерами. Баланс = SUM(amount):
+--   > 0 — сервис должен курьеру, < 0 — курьер должен сдать деньги.
+--   earning  (+) заработок за доставку
+--   cash     (−) курьер получил наличные от покупателя (деньги сервиса)
+--   handover (+) курьер сдал наличные в кассу
+--   payout   (−) сервис выплатил курьеру
+CREATE TABLE IF NOT EXISTS courier_ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  courier_id INTEGER NOT NULL REFERENCES users(id),
+  order_id INTEGER REFERENCES orders(id),
+  type TEXT NOT NULL CHECK (type IN ('earning','cash','handover','payout')),
+  amount INTEGER NOT NULL,
+  note TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ledger_courier ON courier_ledger(courier_id);
+
+CREATE TABLE IF NOT EXISTS otp_codes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  phone TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  used INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_otp_phone ON otp_codes(phone);
 `);
 
 function hashPassword(password) {

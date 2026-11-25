@@ -12,16 +12,17 @@ import { ClientOrders } from './src/screens/Client';
 import { Available, Deliver, Done, Mine } from './src/screens/Courier';
 import { Assign, Couriers, Dashboard, Orders, Users } from './src/screens/Admin';
 import { TicketChat, Tickets } from './src/screens/Support';
+import { CourierMoney, Wallet } from './src/screens/Money';
 
 // Вкладки для каждой роли: [ключ, иконка, подпись, экран]
 const TABS = {
   seller: [['new', '➕', 'Заказ', NewOrder], ['orders', '📦', 'Мои заказы', SellerOrders], ['support', '💬', 'Поддержка', Tickets], ['profile', '👤', 'Профиль', Profile]],
   client: [['orders', '📦', 'Посылки', ClientOrders], ['support', '💬', 'Поддержка', Tickets], ['profile', '👤', 'Профиль', Profile]],
-  courier: [['available', '🔔', 'Доступные', Available], ['mine', '🛵', 'Мои', Mine], ['done', '✅', 'История', Done], ['support', '💬', 'Помощь', Tickets], ['profile', '👤', 'Профиль', Profile]],
+  courier: [['available', '🔔', 'Доступные', Available], ['mine', '🛵', 'Мои', Mine], ['done', '✅', 'История', Done], ['wallet', '💰', 'Деньги', Wallet], ['profile', '👤', 'Профиль', Profile]],
   admin: [['dash', '📊', 'Обзор', Dashboard], ['orders', '📦', 'Заказы', Orders], ['couriers', '🛵', 'Курьеры', Couriers], ['users', '👥', 'Люди', Users], ['tickets', '💬', 'Обращения', Tickets]],
   support: [['tickets', '💬', 'Обращения', Tickets], ['orders', '🔎', 'Заказы', Orders], ['profile', '👤', 'Профиль', Profile]],
 };
-const STACK = { ticket: TicketChat, shared: Shared, deliver: Deliver, assign: Assign, profile: Profile };
+const STACK = { ticket: TicketChat, shared: Shared, deliver: Deliver, assign: Assign, profile: Profile, courierMoney: CourierMoney, support: Tickets };
 
 function Main() {
   const th = useTheme();
@@ -79,6 +80,7 @@ function Main() {
         {top ? <Pressable onPress={nav.pop} hitSlop={12}><Text style={{ fontSize: 22, color: th.brand }}>‹ Назад</Text></Pressable> : <T bold size={18}>Жеткіз <T bold size={18} style={{ backgroundColor: '#fec50c', color: '#14212b' }}> 750 </T></T>}
         <T bold numberOfLines={1} style={{ flex: 1, textAlign: 'right' }}>{title}</T>
         {!top && user.role === 'admin' ? <Pressable onPress={() => nav.push('profile', { title: 'Профиль' })} hitSlop={12}><Text style={{ fontSize: 20 }}>👤</Text></Pressable> : null}
+        {!top && user.role === 'courier' ? <Pressable onPress={() => nav.push('support', { title: 'Поддержка' })} hitSlop={12} accessibilityLabel="Поддержка"><Text style={{ fontSize: 20 }}>💬</Text></Pressable> : null}
       </View>
       <View style={{ flex: 1 }}>
         <Screen key={top ? stack.length + top.name : current[0]} {...(top?.params || {})} />

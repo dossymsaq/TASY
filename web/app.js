@@ -10,7 +10,7 @@ const ROLE_NAMES = { seller: 'Продавец', client: 'Покупатель',
 const TABS = {
   seller: [['new', 'Новый заказ'], ['orders', 'Мои заказы'], ['support', 'Поддержка'], ['profile', 'Профиль']],
   client: [['orders', 'Мои посылки'], ['support', 'Поддержка'], ['profile', 'Профиль']],
-  courier: [['available', 'Доступные'], ['mine', 'Мои доставки'], ['done', 'История'], ['support', 'Поддержка'], ['profile', 'Профиль']],
+  courier: [['available', 'Доступные'], ['mine', 'Мои доставки'], ['done', 'История'], ['wallet', 'Мои деньги'], ['support', 'Поддержка'], ['profile', 'Профиль']],
   admin: [['dash', 'Обзор'], ['orders', 'Заказы'], ['couriers', 'Курьеры'], ['users', 'Пользователи'], ['tickets', 'Обращения'], ['profile', 'Профиль']],
   support: [['tickets', 'Обращения'], ['orders', 'Поиск заказа'], ['profile', 'Профиль']],
 };
@@ -60,38 +60,71 @@ document.addEventListener('submit', async (e) => {
   finally { if (btn) btn.disabled = false; }
 });
 
-// ---------- auth ----------
-function authView(mode = location.hash === '#register-seller' ? 'seller' : 'login') {
+// ---------- auth: вход по SMS-коду (основной) и по паролю (для сотрудников) ----------
+const OTP = { phone: '', is_new: false, dev_code: '', role: location.hash === '#register-seller' ? 'seller' : 'client' };
+function authView(mode = 'sms') {
   $tabs.innerHTML = '';
   document.getElementById('who').textContent = '';
-  const tab = (m, t) => `<button class="${mode === m ? 'on' : ''}" data-act="authMode" data-m="${m}">${t}</button>`;
-  $view.innerHTML = `<div class="card" style="max-width:480px;margin:24px auto">
-    <nav class="tabs" style="padding-top:0">${tab('login', 'Вход')}${tab('seller', 'Я продавец')}${tab('client', 'Я покупатель')}</nav>
-    ${mode === 'login' ? `
+  const tab = (m, t) => `<button class="${mode === m || (m === 'sms' && mode === 'code') ? 'on' : ''}" data-act="authMode" data-m="${m}">${t}</button>`;
+  const roleBtn = (r, t) => `<button type="button" class="${OTP.role === r ? 'on' : ''}" data-act="otpRole" data-r="${r}">${t}</button>`;
+  let body;
+  if (mode === 'password') body = `
       <form data-form="login" class="stack">
         <div><label>Телефон</label><input name="phone" type="tel" placeholder="+7 7XX XXX XX XX" required></div>
         <div><label>Пароль</label><input name="password" type="password" required></div>
         <div class="err"></div><button class="btn block">Войти</button>
         <p class="small muted">Демо: продавец 77000000004 / seller123, покупатель 77000000005 / client123, курьер 77000000003 / courier123, админ 77000000001 / admin123, поддержка 77000000002 / support123</p>
-      </form>` : `
-      <form data-form="register" class="stack">
-        <input type="hidden" name="role" value="${mode}">
-        ${mode === 'seller' ? '<p class="small muted" style="margin:0">Вы платите 750 ₸ за каждую доставку, ваш покупатель — тоже 750 ₸.</p>' : '<p class="small muted" style="margin:0">Посылки, отправленные на ваш номер, появятся в кабинете автоматически.</p>'}
-        <div><label>Ваше имя</label><input name="name" required></div>
-        <div><label>Телефон</label><input name="phone" type="tel" placeholder="+7 7XX XXX XX XX" required></div>
-        ${mode === 'seller' ? `
-          <div><label>Название магазина</label><input name="shop_name" required></div>
-          <div><label>Адрес, откуда забирать товар</label><input name="pickup_address" placeholder="Улица, дом, офис" required></div>` : ''}
-        <div><label>Пароль</label><input name="password" type="password" minlength="6" required></div>
-        <div class="err"></div><button class="btn block">Зарегистрироваться</button>
-      </form>`}
-  </div>`;
+      </form>`;
+  else if (mode === 'code') body = `
+      <form data-form="otpVerify" class="stack">
+        <p style="margin:0">Код отправлен на <b>${phone(OTP.phone)}</b> <a href="#" data-act="authMode" data-m="sms">изменить</a></p>
+        ${OTP.dev_code ? `<p class="small" style="margin:0;background:#fff1c7;color:#7a5600;padding:8px 12px;border-radius:10px">Тестовый режим, SMS не отправляются. Ваш код: <b>${esc(OTP.dev_code)}</b></p>` : ''}
+        <div><label>Код из SMS</label><input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="4" required autofocus style="font-size:24px;letter-spacing:8px;text-align:center"></div>
+        ${OTP.is_new ? `
+          <p class="small muted" style="margin:0">Вы у нас впервые — заполните профиль.</p>
+          <nav class="tabs" style="padding:0">${roleBtn('client', 'Я покупатель')}${roleBtn('seller', 'Я продавец')}</nav>
+          ${OTP.role === 'seller' ? '<p class="small muted" style="margin:0">Вы платите 750 ₸ за каждую доставку, ваш покупатель — тоже 750 ₸.</p>' : ''}
+          <div><label>Ваше имя</label><input name="name" required></div>
+          ${OTP.role === 'seller' ? `
+            <div><label>Название магазина</label><input name="shop_name" required></div>
+            <div><label>Адрес, откуда забирать товар</label><input name="pickup_address" placeholder="Улица, дом, офис" required></div>` : ''}` : ''}
+        <div class="err"></div>
+        <button class="btn block">${OTP.is_new ? 'Зарегистрироваться' : 'Войти'}</button>
+        <button type="button" class="btn ghost block" data-act="otpResend">Отправить код ещё раз</button>
+      </form>`;
+  else body = `
+      <form data-form="otpRequest" class="stack">
+        <p class="small muted" style="margin:0">Войдите или зарегистрируйтесь по номеру телефона — пришлём код в SMS.</p>
+        <div><label>Телефон</label><input name="phone" type="tel" placeholder="+7 7XX XXX XX XX" value="${esc(OTP.phone ? phone(OTP.phone) : '')}" required autofocus></div>
+        <div class="err"></div><button class="btn block">Получить код</button>
+      </form>`;
+  $view.innerHTML = `<div class="card" style="max-width:480px;margin:24px auto">
+    <nav class="tabs" style="padding-top:0">${tab('sms', 'Вход по SMS')}${tab('password', 'По паролю')}</nav>${body}</div>`;
 }
 actions.authMode = (d) => authView(d.m);
+actions.otpRole = (d) => {
+  const name = $view.querySelector('[name=name]')?.value || '';
+  const code = $view.querySelector('[name=code]')?.value || '';
+  OTP.role = d.r; authView('code');
+  $view.querySelector('[name=name]').value = name; $view.querySelector('[name=code]').value = code;
+};
+const normPhoneLocal = (p) => { let d = String(p).replace(/\D/g, ''); if (d.length === 11 && d[0] === '8') d = '7' + d.slice(1); if (d.length === 10) d = '7' + d; return d; };
 const forms = {};
+forms.otpRequest = async (f) => {
+  const r = await api('POST', '/auth/otp/request', { phone: f.phone });
+  Object.assign(OTP, { phone: normPhoneLocal(f.phone), is_new: r.is_new, dev_code: r.dev_code || '' });
+  authView('code');
+};
+actions.otpResend = async () => {
+  const r = await api('POST', '/auth/otp/request', { phone: OTP.phone });
+  OTP.dev_code = r.dev_code || ''; toast('Новый код отправлен'); authView('code');
+};
+forms.otpVerify = async (f) => {
+  const r = await api('POST', '/auth/otp/verify', { ...f, phone: OTP.phone, role: OTP.role });
+  store.token = r.token; history.replaceState(null, '', '/app'); start();
+};
 forms.login = async (f) => { const r = await api('POST', '/auth/login', f); store.token = r.token; start(); };
-forms.register = async (f) => { const r = await api('POST', '/auth/register', f); store.token = r.token; history.replaceState(null, '', '/app'); start(); };
-actions.logout = async () => { try { await api('POST', '/auth/logout'); } catch {} store.token = null; S.user = null; authView('login'); };
+actions.logout = async () => { try { await api('POST', '/auth/logout'); } catch {} store.token = null; S.user = null; authView(); };
 
 // ---------- layout ----------
 function renderTabs() {
@@ -104,7 +137,7 @@ async function go(tab) {
   const view = VIEWS[S.user.role][tab] || VIEWS.common[tab];
   $view.innerHTML = '<p class="muted">Загрузка…</p>';
   try { $view.innerHTML = await view(); }
-  catch (e) { if (e.status === 401) { store.token = null; return authView('login'); } $view.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
+  catch (e) { if (e.status === 401) { store.token = null; return authView(); } $view.innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
 }
 const reload = () => go(S.tab);
 
@@ -256,8 +289,24 @@ VIEWS.courier = {
     const { done } = await courierLoad();
     return `<div class="card stat" style="margin-bottom:16px"><div class="v">${done.length}</div><div class="l">последние доставки</div></div>` + list(done, (o) => orderCard(o), 'Пока пусто');
   },
+  wallet: async () => {
+    const b = await api('GET', '/courier/balance');
+    return `<div class="grid">
+      <div class="card stat"><div class="v">${money(b.earned_today)}</div><div class="l">заработано сегодня · ${b.deliveries_today} дост.</div></div>
+      <div class="card stat"><div class="v">${money(b.cash_in_hand)}</div><div class="l">наличные на руках — сдать в кассу</div></div>
+      <div class="card stat"><div class="v" style="color:${b.balance >= 0 ? 'var(--ok)' : 'var(--bad)'}">${money(Math.abs(b.balance))}</div><div class="l">${b.balance >= 0 ? 'сервис должен вам' : 'вы должны сервису'}</div></div>
+      <div class="card stat"><div class="v">${money(b.earned_total)}</div><div class="l">заработано всего · выплачено ${money(b.paid_out)}</div></div>
+    </div>
+    <p class="muted small">За каждую доставку вы получаете ${money(b.fee)}. Наличные от покупателей — деньги сервиса: они вычитаются из суммы к выплате, пока вы их не сдадите.</p>
+    ${ledgerTable(b.ledger)}`;
+  },
   support: VIEWS.common.support,
 };
+const LEDGER = { earning: 'Доставка', cash: 'Наличные от покупателя', handover: 'Сдал наличные', payout: 'Выплата' };
+const ledgerTable = (rows) => rows.length ? `<div class="card scroll"><table class="table"><tr><th>Дата</th><th>Операция</th><th>Заказ</th><th style="text-align:right">Сумма</th></tr>
+  ${rows.map((r) => `<tr><td>${date(r.created_at)}</td><td>${LEDGER[r.type]}</td><td class="code">${esc(r.order_code || '')}</td>
+    <td style="text-align:right" class="${r.amount >= 0 ? 'paid' : 'unpaid'}">${r.amount >= 0 ? '+' : '−'}${money(Math.abs(r.amount))}</td></tr>`).join('')}
+  </table></div>` : '<div class="card muted">Операций пока нет</div>';
 actions.take = async (d) => { await api('POST', `/courier/orders/${d.id}/take`); toast('Заказ ваш'); go('mine'); };
 actions.pickup = async (d) => { await api('POST', `/courier/orders/${d.id}/pickup`); reload(); };
 actions.deliverDlg = (d) => openDialog(`<div class="row between"><h3 style="margin:0">Вручение посылки</h3><button class="btn ghost sm" data-close>✕</button></div>
@@ -266,7 +315,7 @@ actions.deliverDlg = (d) => openDialog(`<div class="row between"><h3 style="marg
     ${d.paid === '1' ? '<p class="paid">Покупатель оплатил онлайн</p>' : `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="cash_received" style="width:auto;min-height:0"> Получил ${money(S.cfg.price_buyer)} наличными</label>`}
     <div class="err"></div><button class="btn sun">Подтвердить вручение</button>
   </form>`);
-forms.deliver = async (f, form) => { await api('POST', `/courier/orders/${form.dataset.id}/deliver`, { ...f, cash_received: !!f.cash_received }); $dlg.close(); toast('Доставлено!'); reload(); };
+forms.deliver = async (f, form) => { await api('POST', `/courier/orders/${form.dataset.id}/deliver`, { ...f, cash_received: !!f.cash_received }); $dlg.close(); toast(`Доставлено! +${money(S.cfg.courier_fee)}`); reload(); };
 
 // ---------- администратор / поддержка ----------
 let couriersCache = [];
@@ -313,12 +362,15 @@ VIEWS.admin = {
     return `<div class="grid">
       <div class="card stat"><div class="v">${money(s.revenue)}</div><div class="l">выручка всего</div></div>
       <div class="card stat"><div class="v">${money(s.revenueToday)}</div><div class="l">выручка сегодня</div></div>
+      <div class="card stat"><div class="v">${money(s.profit)}</div><div class="l">прибыль после оплаты курьерам</div></div>
+      <div class="card stat"><div class="v">${money(s.profitToday)}</div><div class="l">прибыль сегодня</div></div>
       <div class="card stat"><div class="v">${s.ordersToday}</div><div class="l">заказов сегодня</div></div>
       <div class="card stat"><div class="v">${s.deliveredToday}</div><div class="l">доставлено сегодня</div></div>
       <div class="card stat"><div class="v">${active}</div><div class="l">в работе сейчас</div></div>
       <div class="card stat"><div class="v">${s.byStatus.new || 0}</div><div class="l">ждут оплаты продавца</div></div>
       <div class="card stat"><div class="v">${s.openTickets}</div><div class="l">открытых обращений</div></div>
       <div class="card stat"><div class="v">${money(s.cash)}</div><div class="l">наличные у курьеров</div></div>
+      <div class="card stat"><div class="v">${money(s.owedToCouriers)}</div><div class="l">к выплате курьерам</div></div>
     </div>
     <div class="card" style="margin-top:16px"><h3>Выручка за 14 дней</h3>
       ${s.daily.length ? `<div class="bars" style="margin-bottom:24px">${s.daily.map((d) => `<div style="height:${(d.revenue / max) * 100}%" title="${d.day}: ${money(d.revenue)}"><span>${d.day.slice(8)}</span></div>`).join('')}</div>` : '<p class="muted">Пока нет оплат</p>'}
@@ -328,8 +380,13 @@ VIEWS.admin = {
   orders: ordersView,
   couriers: async () => {
     const { couriers } = await api('GET', '/admin/couriers');
-    return `<div class="card scroll"><table class="table"><tr><th>Курьер</th><th>Телефон</th><th>В работе</th><th>Доставлено</th><th>Статус</th></tr>
-      ${couriers.map((c) => `<tr><td>${esc(c.name)}</td><td>${phone(c.phone)}</td><td>${c.active_orders}</td><td>${c.delivered}</td><td>${c.active ? '<span class="paid">активен</span>' : '<span class="unpaid">заблокирован</span>'}</td></tr>`).join('')}
+    return `<p class="muted small">Курьер получает ${money(S.cfg.courier_fee)} за доставку. «Баланс» — сколько сервис должен курьеру с учётом наличных у него на руках.</p>
+    <div class="card scroll"><table class="table"><tr><th>Курьер</th><th>В работе</th><th>Доставлено</th><th>Сегодня</th><th>Наличные</th><th>Баланс</th><th></th></tr>
+      ${couriers.map((c) => `<tr><td>${esc(c.name)}<div class="small muted">${phone(c.phone)}${c.active ? '' : ' · <span class="unpaid">заблокирован</span>'}</div></td>
+        <td>${c.active_orders}</td><td>${c.delivered}</td><td>${money(c.earned_today)}</td>
+        <td class="${c.cash_in_hand ? 'unpaid' : ''}">${money(c.cash_in_hand)}</td>
+        <td class="${c.balance > 0 ? 'paid' : c.balance < 0 ? 'unpaid' : ''}">${c.balance < 0 ? '−' : ''}${money(Math.abs(c.balance))}</td>
+        <td><button class="btn sm" data-act="courierMoney" data-id="${c.id}">Расчёт</button></td></tr>`).join('')}
     </table></div><p class="muted small">Добавить курьера — во вкладке «Пользователи».</p>`;
   },
   users: async () => {
@@ -348,6 +405,26 @@ VIEWS.admin = {
       </table></div>`;
   },
   tickets: ticketsView,
+};
+actions.courierMoney = async (d) => {
+  const b = await api('GET', `/admin/couriers/${d.id}/ledger`);
+  openDialog(`<div class="row between"><h3 style="margin:0">${esc(b.courier.name)}</h3><button class="btn ghost sm" data-close>✕</button></div>
+    <div class="grid" style="grid-template-columns:repeat(2,1fr);margin:12px 0">
+      <div class="stat"><div class="v">${money(b.cash_in_hand)}</div><div class="l">наличные на руках</div></div>
+      <div class="stat"><div class="v">${b.balance < 0 ? '−' : ''}${money(Math.abs(b.balance))}</div><div class="l">${b.balance >= 0 ? 'сервис должен курьеру' : 'курьер должен сервису'}</div></div>
+    </div>
+    <form data-form="settle" data-id="${b.courier.id}" class="stack">
+      <div class="row">
+        <select name="type" style="width:auto;flex:1"><option value="handover">Курьер сдал наличные</option><option value="payout">Выплата курьеру</option></select>
+        <input name="amount" type="number" min="1" placeholder="Сумма, ₸" required style="width:140px;flex:none">
+      </div>
+      <div class="err"></div><button class="btn">Провести</button>
+    </form>
+    <h4>История операций</h4>${ledgerTable(b.ledger)}`);
+};
+forms.settle = async (f, form) => {
+  await api('POST', `/admin/couriers/${form.dataset.id}/settle`, { type: f.type, amount: Number(f.amount) });
+  toast('Операция проведена'); await actions.courierMoney({ id: form.dataset.id }); reload();
 };
 forms.addUser = async (f) => { await api('POST', '/admin/users', f); toast('Сотрудник добавлен'); reload(); };
 actions.toggleUser = async (d) => { await api('PATCH', `/admin/users/${d.id}`, { active: d.on === '1' }); reload(); };

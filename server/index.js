@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const cfg = require('./config');
 const { db, hashPassword, checkPassword, tx } = require('./db');
 const payments = require('./payments');
+const sms = require('./sms');
 
 const app = express();
 app.use(express.json({ limit: '100kb' }));
@@ -117,6 +118,7 @@ api.get('/config', (req, res) => res.json({
   city: cfg.CITY, price_seller: cfg.PRICE_SELLER, price_buyer: cfg.PRICE_BUYER,
   price_total: cfg.PRICE_SELLER + cfg.PRICE_BUYER, max_weight_kg: cfg.MAX_WEIGHT_KG,
   districts: cfg.DISTRICTS, statuses: cfg.STATUSES, payment_mode: payments.MODE,
+  courier_fee: cfg.COURIER_FEE, sms_mode: sms.MODE,
 }));
 
 api.post('/auth/register', (req, res) => {
@@ -140,6 +142,54 @@ api.post('/auth/login', (req, res) => {
   if (!user || !checkPassword(String(req.body?.password || ''), user.password_hash)) fail(401, 'Неверный телефон или пароль');
   if (!user.active) fail(403, 'Аккаунт заблокирован');
   res.json({ token: newSession(user.id), user: publicUser(user) });
+});
+
+// ---------- вход по SMS-коду ----------
+const otpHash = (phone, code) => crypto.createHash('sha256').update(`${phone}:${code}`).digest();
+api.post('/auth/otp/request', async (req, res) => {
+  const phone = normPhone(req.body?.phone);
+  const last = db.prepare("SELECT (julianday('now') - julianday(created_at)) * 86400 AS s FROM otp_codes WHERE phone = ? ORDER BY id DESC LIMIT 1").get(phone);
+  if (last && last.s < cfg.OTP_RESEND_SEC) fail(429, `Новый код можно запросить через ${Math.ceil(cfg.OTP_RESEND_SEC - last.s)} сек`);
+  const { n } = db.prepare("SELECT COUNT(*) n FROM otp_codes WHERE phone = ? AND created_at >= datetime('now','-1 hour')").get(phone);
+  if (n >= cfg.OTP_MAX_PER_HOUR) fail(429, 'Слишком много запросов кода. Попробуйте через час.');
+  const user = db.prepare('SELECT active FROM users WHERE phone = ?').get(phone);
+  if (user && !user.active) fail(403, 'Аккаунт заблокирован');
+  const code = String(crypto.randomInt(1000, 10000));
+  tx(() => {
+    db.prepare('UPDATE otp_codes SET used = 1 WHERE phone = ? AND used = 0').run(phone);
+    db.prepare(`INSERT INTO otp_codes (phone, code_hash, expires_at) VALUES (?, ?, datetime('now', '+${cfg.OTP_TTL_MIN} minutes'))`)
+      .run(phone, otpHash(phone, code).toString('hex'));
+  });
+  await sms.sendSms(phone, `Жеткіз 750: код для входа ${code}. Никому его не сообщайте.`);
+  res.json({ sent: true, is_new: !user, resend_in: cfg.OTP_RESEND_SEC, ...(sms.MODE === 'mock' ? { dev_code: code } : {}) });
+});
+api.post('/auth/otp/verify', (req, res) => {
+  const b = req.body || {};
+  const phone = normPhone(b.phone);
+  const otp = db.prepare("SELECT * FROM otp_codes WHERE phone = ? AND used = 0 AND expires_at > datetime('now') ORDER BY id DESC LIMIT 1").get(phone);
+  if (!otp) fail(400, 'Код истёк или не запрошен. Запросите новый.');
+  if (otp.attempts >= cfg.OTP_MAX_ATTEMPTS) fail(429, 'Слишком много попыток. Запросите новый код.');
+  const ok = crypto.timingSafeEqual(otpHash(phone, String(b.code || '').trim()), Buffer.from(otp.code_hash, 'hex'));
+  if (!ok) {
+    db.prepare('UPDATE otp_codes SET attempts = attempts + 1 WHERE id = ?').run(otp.id);
+    const left = cfg.OTP_MAX_ATTEMPTS - otp.attempts - 1;
+    fail(400, left > 0 ? `Неверный код. Осталось попыток: ${left}` : 'Неверный код. Запросите новый.');
+  }
+  let user = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
+  let created = false;
+  if (!user) { // регистрация по SMS
+    const role = b.role === 'seller' ? 'seller' : 'client';
+    const name = str(b.name, 'Имя', 100);
+    const shop = role === 'seller' ? str(b.shop_name, 'Название магазина', 100) : null;
+    const pickup = role === 'seller' ? str(b.pickup_address, 'Адрес забора товара') : null;
+    const r = db.prepare('INSERT INTO users (role,name,phone,shop_name,pickup_address,password_hash) VALUES (?,?,?,?,?,?)')
+      .run(role, name, phone, shop, pickup, hashPassword(crypto.randomBytes(24).toString('hex')));
+    user = db.prepare('SELECT * FROM users WHERE id = ?').get(r.lastInsertRowid);
+    created = true;
+  }
+  if (!user.active) fail(403, 'Аккаунт заблокирован');
+  db.prepare('UPDATE otp_codes SET used = 1 WHERE id = ?').run(otp.id);
+  res.status(created ? 201 : 200).json({ token: newSession(user.id), user: publicUser(user), created });
 });
 
 api.post('/auth/logout', auth(), (req, res) => {
@@ -268,8 +318,56 @@ api.post('/courier/orders/:id/deliver', auth('courier'), async (req, res) => {
     if (!req.body?.cash_received) fail(400, `Покупатель не оплатил онлайн — получите ${cfg.PRICE_BUYER} ₸ наличными`);
     await pay(o, 'buyer', 'cash', req.user.id);
   }
-  setStatus(getOrder(o.id), 'delivered', 'Посылка вручена покупателю', req.user.id);
-  res.json({ ok: true });
+  tx(() => {
+    setStatus(getOrder(o.id), 'delivered', 'Посылка вручена покупателю', req.user.id);
+    ledger(req.user.id, o.id, 'earning', cfg.COURIER_FEE, `Доставка ${o.code}`);
+    if (!o.buyer_paid) ledger(req.user.id, o.id, 'cash', -cfg.PRICE_BUYER, `Наличные от покупателя, ${o.code}`);
+  });
+  res.json({ ok: true, earned: cfg.COURIER_FEE });
+});
+
+// ---------- расчёты с курьерами ----------
+function ledger(courierId, orderId, type, amount, note, createdBy) {
+  db.prepare('INSERT INTO courier_ledger (courier_id,order_id,type,amount,note,created_by) VALUES (?,?,?,?,?,?)')
+    .run(courierId, orderId, type, amount, note || null, createdBy || null);
+}
+function courierBalance(id) {
+  const v = (where) => db.prepare(`SELECT COALESCE(SUM(amount),0) v FROM courier_ledger WHERE courier_id = ? ${where}`).get(id).v;
+  const balance = v('');
+  return {
+    balance,                                   // > 0 — сервис должен курьеру, < 0 — курьер должен сервису
+    cash_in_hand: -v("AND type IN ('cash','handover')"), // наличные, которые нужно сдать
+    earned_total: v("AND type = 'earning'"),
+    earned_today: v("AND type = 'earning' AND date(created_at) = date('now')"),
+    deliveries_today: db.prepare("SELECT COUNT(*) v FROM courier_ledger WHERE courier_id = ? AND type = 'earning' AND date(created_at) = date('now')").get(id).v,
+    paid_out: -v("AND type = 'payout'"),
+  };
+}
+const ledgerRows = (id) => db.prepare(`SELECT l.type, l.amount, l.note, l.created_at, o.code order_code
+  FROM courier_ledger l LEFT JOIN orders o ON o.id = l.order_id WHERE l.courier_id = ? ORDER BY l.id DESC LIMIT 200`).all(id);
+
+api.get('/courier/balance', auth('courier'), (req, res) => {
+  res.json({ ...courierBalance(req.user.id), fee: cfg.COURIER_FEE, ledger: ledgerRows(req.user.id) });
+});
+api.get('/admin/couriers/:id/ledger', auth('admin'), (req, res) => {
+  const c = db.prepare("SELECT id, name, phone FROM users WHERE id = ? AND role = 'courier'").get(req.params.id);
+  if (!c) fail(404, 'Курьер не найден');
+  res.json({ courier: c, ...courierBalance(c.id), ledger: ledgerRows(c.id) });
+});
+api.post('/admin/couriers/:id/settle', auth('admin'), (req, res) => {
+  const c = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'courier'").get(req.params.id);
+  if (!c) fail(404, 'Курьер не найден');
+  const amount = Math.round(Number(req.body?.amount));
+  if (!(amount > 0)) fail(400, 'Укажите сумму');
+  const b = courierBalance(c.id);
+  if (req.body?.type === 'handover') {
+    if (amount > b.cash_in_hand) fail(400, `У курьера на руках только ${b.cash_in_hand} ₸ наличных`);
+    ledger(c.id, null, 'handover', amount, 'Сдал наличные в кассу', req.user.id);
+  } else if (req.body?.type === 'payout') {
+    if (amount > b.balance) fail(400, b.balance > 0 ? `К выплате только ${b.balance} ₸` : 'Сервис ничего не должен курьеру');
+    ledger(c.id, null, 'payout', -amount, 'Выплата курьеру', req.user.id);
+  } else fail(400, 'Неверный тип операции');
+  res.json(courierBalance(c.id));
 });
 
 // ---------- управление (админ) ----------
@@ -282,10 +380,14 @@ api.get('/admin/stats', auth('admin', 'support'), (req, res) => {
   const deliveredToday = q("SELECT COUNT(*) v FROM orders WHERE status='delivered' AND date(delivered_at)=date('now')").v;
   const users = Object.fromEntries(db.prepare('SELECT role, COUNT(*) n FROM users GROUP BY role').all().map((r) => [r.role, r.n]));
   const openTickets = q("SELECT COUNT(*) v FROM tickets WHERE status != 'closed'").v;
-  const cash = q("SELECT COALESCE(SUM(amount),0) v FROM payments WHERE status='paid' AND method='cash'").v;
+  const cash = -q("SELECT COALESCE(SUM(amount),0) v FROM courier_ledger WHERE type IN ('cash','handover')").v; // наличные на руках у курьеров
+  const courierCost = q("SELECT COALESCE(SUM(amount),0) v FROM courier_ledger WHERE type = 'earning'").v;
+  const courierCostToday = q("SELECT COALESCE(SUM(amount),0) v FROM courier_ledger WHERE type = 'earning' AND date(created_at)=date('now')").v;
+  const owedToCouriers = q(`SELECT COALESCE(SUM(b),0) v FROM (SELECT SUM(amount) b FROM courier_ledger GROUP BY courier_id HAVING b > 0)`).v;
   const daily = db.prepare(`SELECT date(created_at) day, SUM(amount) revenue, COUNT(DISTINCT order_id) orders FROM payments
     WHERE status='paid' AND created_at >= date('now','-13 days') GROUP BY day ORDER BY day`).all();
-  res.json({ byStatus, revenue, revenueToday, ordersToday, deliveredToday, users, openTickets, cash, daily });
+  res.json({ byStatus, revenue, revenueToday, ordersToday, deliveredToday, users, openTickets, cash, daily,
+    courierCost, courierCostToday, profit: revenue - courierCost, profitToday: revenueToday - courierCostToday, owedToCouriers });
 });
 api.get('/admin/orders', auth('admin', 'support'), (req, res) => {
   const where = []; const args = [];
@@ -321,7 +423,7 @@ api.get('/admin/couriers', auth('admin'), (req, res) => {
       (SELECT COUNT(*) FROM orders o WHERE o.courier_id=u.id AND o.status IN ('assigned','picked_up')) active_orders,
       (SELECT COUNT(*) FROM orders o WHERE o.courier_id=u.id AND o.status='delivered') delivered
     FROM users u WHERE role='courier' ORDER BY u.name`).all();
-  res.json({ couriers: rows });
+  res.json({ couriers: rows.map((c) => ({ ...c, ...courierBalance(c.id) })) });
 });
 api.post('/admin/users', auth('admin'), (req, res) => {
   const b = req.body || {};
